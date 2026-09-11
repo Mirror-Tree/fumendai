@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FP-30X 接続チェック</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --mist: #E6ECF1;
+    --paper: #FFFFFF;
+    --ink: #1D2A38;
+    --slate: #5B6B7A;
+    --line: #C9D3DC;
+    --key: #3B6FD8;
+    --ok: #2F7D52;
+    --ng: #B83A28;
+    --warn: #8A5A12;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--mist);
+    color: var(--ink);
+    font-family: "BIZ UDPGothic", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 20px 16px 48px; }
+
+  header h1 { font-size: 1.75rem; line-height: 1.3; margin: 0 0 4px; font-weight: 700; }
+  header p { margin: 0 0 16px; color: var(--slate); }
+
+  .env { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px 16px; margin: 0 0 20px; padding: 0; list-style: none; }
+  .env li { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 4px 0; font-size: .9rem; }
+  .env .v { font-weight: 700; }
+  .yes { color: var(--ok); }
+  .no { color: var(--ng); }
+  .maybe { color: var(--warn); }
+
+  /* モニター：このページの主役 */
+  .monitor { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 20px; }
+  .readout { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 12px; }
+  .big { font-size: 4.5rem; line-height: 1; font-weight: 700; letter-spacing: -0.02em; min-width: 3.2em; font-variant-numeric: tabular-nums; }
+  .big.idle { color: var(--line); }
+  .sub { color: var(--slate); padding-bottom: 6px; }
+  .sub strong { color: var(--ink); }
+  .pedal { margin-left: auto; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); color: var(--slate); font-size: .9rem; margin-bottom: 6px; }
+  .pedal.on { background: var(--key); border-color: var(--key); color: #fff; }
+
+  .kb { position: relative; height: 96px; display: flex; border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; user-select: none; }
+  .w { flex: 1 1 0; border-right: 1px solid var(--line); background: #fff; position: relative; }
+  .w:last-child { border-right: 0; }
+  .b { position: absolute; top: 0; height: 60%; background: var(--ink); border-radius: 0 0 2px 2px; z-index: 2; }
+  .w.on { background: var(--key); }
+  .b.on { background: var(--key); }
+  .w .c { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-size: 9px; color: var(--slate); }
+  .w.on .c { color: #fff; }
+
+  /* 経路パネル */
+  .routes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  @media (max-width: 760px) { .routes { grid-template-columns: 1fr; } .big { font-size: 3.5rem; } }
+  .route { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .route h2 { font-size: 1.2rem; margin: 0 0 2px; }
+  .route .how { margin: 0 0 12px; color: var(--slate); font-size: .9rem; }
+  .state { font-weight: 700; margin: 0 0 12px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  button, select {
+    font: inherit; min-height: 48px; padding: 8px 14px; border-radius: 8px;
+    border: 1px solid var(--ink); background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  button.primary { background: var(--ink); color: #fff; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
+  select { cursor: default; max-width: 100%; }
+
+  .checks { margin: 0 0 8px; padding: 0; list-style: none; }
+  .checks li { display: flex; gap: 8px; padding: 3px 0; }
+  .mark { width: 1.4em; text-align: center; font-weight: 700; }
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .9rem; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+  .stats dt { color: var(--slate); }
+  .stats dd { margin: 0; }
+  .ports { font-size: .9rem; margin: 0 0 12px; padding-left: 1.2em; }
+  .ports:empty { display: none; }
+  label.inline { display: flex; align-items: center; gap: 8px; font-size: .9rem; min-height: 40px; }
+  input[type=checkbox] { width: 22px; height: 22px; }
+
+  /* ログ */
+  .logbox { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .logbox h2 { font-size: 1.2rem; margin: 0 0 8px; }
+  .log { max-height: 360px; overflow: auto; border-top: 1px solid var(--line); margin-top: 8px; font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .row { display: grid; grid-template-columns: 7.5em 7em 6.5em 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--mist); }
+  .row .r-midi { color: var(--key); }
+  .row .r-ble { color: var(--ok); }
+  .row.err { color: var(--ng); }
+  @media (max-width: 520px) { .row { grid-template-columns: 6.5em 1fr; } .row span:nth-child(3), .row span:nth-child(4) { grid-column: 1 / -1; } }
+  @media (prefers-reduced-motion: no-preference) { .w, .b { transition: background-color 60ms linear; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>FP-30X 接続チェック</h1>
+    <p>タブレットのChromeとFP-30XがBluetooth MIDIでやり取りできるかを、2つの経路で確かめます。</p>
+    <ul class="env" id="env"></ul>
+  </header>
+
+  <section class="monitor" aria-label="受信モニター">
+    <div class="readout">
+      <div class="big idle" id="bigNote" aria-live="polite">--</div>
+      <div class="sub" id="noteSub">鍵盤を押すと、ここに音名が表示されます。</div>
+      <div class="pedal" id="pedal">ダンパーペダル</div>
+    </div>
+    <div class="kb" id="kb" aria-hidden="true"></div>
+  </section>
+
+  <div class="routes">
+    <section class="route" aria-labelledby="h-midi">
+      <h2 id="h-midi">経路A　Web MIDI</h2>
+      <p class="how">OS側で接続済みのMIDI機器を使います。Bluetoothなら先に「MIDI BLE Connect」でFP-30Xを接続してから押してください。USBケーブル接続の確認にも使えます。</p>
+      <p class="state" id="midiState">未開始</p>
+      <div class="btns">
+        <button class="primary" id="midiStart">MIDIへのアクセスを許可</button>
+      </div>
+      <ul class="ports" id="midiPorts"></ul>
+      <div class="btns">
+        <select id="midiOut" aria-label="送信先"><option value="">送信先なし</option></select>
+        <button id="midiSend" disabled>C4を鳴らす</button>
+      </div>
+      <ul class="checks" id="midiChecks"></ul>
+      <dl class="stats" id="midiStats"></dl>
+    </section>
+
+    <section class="route" aria-labelledby="h-ble">
+      <h2 id="h-ble">経路B　Web Bluetooth直接</h2>
+      <p class="how">OSやほかのアプリを通さず、ChromeからFP-30Xに直接つなぎます。Roland Piano AppやMIDI BLE Connectで接続中の場合は、先に切断してください。</p>
+      <p class="state" id="bleState">未接続</p>
+      <div class="btns">
+        <button class="primary" id="bleFind">FP-30Xを探して接続</button>
+        <button id="bleFindAll">一覧に出ない場合はすべての機器から選ぶ</button>
+      </div>
+      <div class="btns">
+        <button id="bleSend" disabled>C4を鳴らす</button>
+        <button id="bleReconnect" disabled>再接続</button>
+        <button id="bleDisconnect" disabled>切断</button>
+      </div>
+      <label class="inline"><input type="checkbox" id="bleAuto"> 予期せず切れたら自動で再接続する</label>
+      <ul class="checks" id="bleChecks"></ul>
+      <dl class="stats" id="bleStats"></dl>
+    </section>
+  </div>
+
+  <section class="logbox" aria-labelledby="h-log">
+    <h2 id="h-log">ログ</h2>
+    <div class="btns">
+      <button id="copyLog">ログをコピー</button>
+      <button id="clearLog">ログを消去</button>
+      <label class="inline"><input type="checkbox" id="hideRt" checked> Active Sensingなどの定期信号を表示しない</label>
+    </div>
+    <div class="log" id="log" role="log"></div>
+  </section>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---- 定数 ----
+  const BLE_MIDI_SERVICE = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
+  const BLE_MIDI_CHAR    = '7772e5db-3868-4112-a1a9-f2669d106bf3';
+  const NAMES  = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const DOREMI = ['ド','ド#','レ','レ#','ミ','ファ','ファ#','ソ','ソ#','ラ','ラ#','シ'];
+  const LOW = 21, HIGH = 108; // 88鍵 A0〜C8
+  const $ = id => document.getElementById(id);
+
+  const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
+  const isBlack = n => [1, 3, 6, 8, 10].includes(n % 12);
+  const hex = arr => arr.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+
+  // ---- 状態 ----
+  const routes = {
+    midi: { label: 'Web MIDI', connected: false, since: null, msgs: 0, notes: 0, drops: 0, last: null,
+            checks: { conn: false, recv: false, send: false } },
+    ble:  { label: 'Bluetooth', connected: false, since: null, msgs: 0, notes: 0, drops: 0, last: null,
+            checks: { conn: false, recv: false, send: false } }
+  };
+  const held = new Map(); // note -> Set(route)
+  const logLines = [];
+
+  // ---- 環境チェック ----
+  async function renderEnv() {
+    const items = [];
+    items.push(['HTTPSで開いている', window.isSecureContext ? ['はい', 'yes'] : ['いいえ', 'no']]);
+    items.push(['Web MIDI API', 'requestMIDIAccess' in navigator ? ['使える', 'yes'] : ['使えない', 'no']]);
+    items.push(['Web Bluetooth API', navigator.bluetooth ? ['使える', 'yes'] : ['使えない', 'no']]);
+    let bt = ['不明', 'maybe'];
+    if (navigator.bluetooth && navigator.bluetooth.getAvailability) {
+      try { bt = (await navigator.bluetooth.getAvailability()) ? ['利用可能', 'yes'] : ['オフまたは非対応', 'no']; } catch (_) {}
+    }
+    items.push(['端末のBluetooth', bt]);
+    let framed = false;
+    try { framed = window.self !== window.top; } catch (_) { framed = true; }
+    items.push(['表示方法', framed ? ['埋め込み表示（許可が通らない可能性）', 'maybe'] : ['単独ページ', 'yes']]);
+    let browser = navigator.userAgent;
+    if (navigator.userAgentData && navigator.userAgentData.brands) {
+      const b = navigator.userAgentData.brands.find(x => /Chrome|Edge|Opera/.test(x.brand));
+      if (b) browser = `${b.brand} ${b.version}` + (navigator.userAgentData.mobile ? '（モバイル）' : '');
+    }
+    items.push(['ブラウザ', [browser, '']]);
+    $('env').innerHTML = items.map(([k, [v, c]]) =>
+      `<li><span>${k}</span><span class="v ${c}">${escapeHtml(v)}</span></li>`).join('');
+    return items;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  // ---- 鍵盤表示 ----
+  const keyEls = new Map();
+  function buildKeyboard() {
+    const kb = $('kb');
+    const whites = [];
+    for (let n = LOW; n <= HIGH; n++) if (!isBlack(n)) whites.push(n);
+    const ww = 100 / whites.length;
+    let wi = 0;
+    for (let n = LOW; n <= HIGH; n++) {
+      if (!isBlack(n)) {
+        const el = document.createElement('div');
+        el.className = 'w';
+        if (n % 12 === 0) el.innerHTML = `<span class="c">${noteName(n)}</span>`;
+        kb.appendChild(el);
+        keyEls.set(n, el);
+        wi++;
+      } else {
+        const el = document.createElement('div');
+        el.className = 'b';
+        const bw = ww * 0.62;
+        el.style.left = (wi * ww - bw / 2) + '%';
+        el.style.width = bw + '%';
+        kb.appendChild(el);
+        keyEls.set(n, el);
+      }
+    }
+  }
+  function lightKey(n, on) {
+    const el = keyEls.get(n);
+    if (el) el.classList.toggle('on', on);
+  }
+
+  // ---- ログ ----
+  function stamp() {
+    const d = new Date();
+    return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  }
+  function log(route, kind, text, isErr = false) {
+    const t = stamp();
+    const rl = route ? routes[route].label : '全体';
+    logLines.unshift(`${t}\t${rl}\t${kind}\t${text}`);
+    if (logLines.length > 500) logLines.pop();
+    const row = document.createElement('div');
+    row.className = 'row' + (isErr ? ' err' : '');
+    row.innerHTML = `<span>${t}</span><span class="r-${route || ''}">${rl}</span><span>${escapeHtml(kind)}</span><span>${escapeHtml(text)}</span>`;
+    const box = $('log');
+    box.prepend(row);
+    while (box.children.length > 300) box.lastChild.remove();
+  }
+
+  // ---- MIDIメッセージ共通処理 ----
+  function handleMidi(route, bytes) {
+    const r = routes[route];
+    r.msgs++;
+    r.last = Date.now();
+    const st = bytes[0];
+    if (st >= 0xF8) {
+      if (!$('hideRt').checked) log(route, '定期信号', st === 0xFE ? 'Active Sensing' : st === 0xF8 ? 'Clock' : hex(bytes));
+      return;
+    }
+    const type = st & 0xF0, ch = (st & 0x0F) + 1;
+    if (type === 0x90 && bytes[2] > 0) {
+      const n = bytes[1];
+      r.notes++;
+      if (!r.checks.recv) { r.checks.recv = true; renderChecks(); }
+      if (!held.has(n)) held.set(n, new Set());
+      held.get(n).add(route);
+      lightKey(n, true);
+      const big = $('bigNote');
+      big.textContent = noteName(n);
+      big.classList.remove('idle');
+      $('noteSub').innerHTML = `<strong>${DOREMI[n % 12]}</strong>　強さ ${bytes[2]}　経路 ${r.label}`;
+      log(route, 'ノートオン', `${noteName(n)}（${DOREMI[n % 12]}） 強さ${bytes[2]} ch${ch}`);
+    } else if (type === 0x80 || (type === 0x90 && bytes[2] === 0)) {
+      const n = bytes[1];
+      const s = held.get(n);
+      if (s) { s.delete(route); if (s.size === 0) { held.delete(n); lightKey(n, false); } }
+      log(route, 'ノートオフ', `${noteName(n)} ch${ch}`);
+    } else if (type === 0xB0) {
+      if (bytes[1] === 64) $('pedal').classList.toggle('on', bytes[2] >= 64);
+      const label = bytes[1] === 64 ? 'ダンパー' : bytes[1] === 66 ? 'ソステヌート' : bytes[1] === 67 ? 'ソフト' : `CC${bytes[1]}`;
+      log(route, 'コントロール', `${label} 値${bytes[2]} ch${ch}`);
+    } else {
+      log(route, 'その他', hex(bytes));
+    }
+  }
+
+  // ---- 経路A：Web MIDI ----
+  let midiAccess = null;
+
+  async function startMidi() {
+    if (!('requestMIDIAccess' in navigator)) {
+      log('midi', 'エラー', 'このブラウザはWeb MIDIに対応していません。Android版Chromeで開いてください。', true);
+      return;
+    }
+    try {
+      midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    } catch (e) {
+      const hint = e.name === 'SecurityError'
+        ? 'アクセスが拒否されました。HTTPSで開いているか、サイト設定でMIDIが「ブロック」になっていないか確認してください。'
+        : `${e.name}: ${e.message}`;
+      log('midi', 'エラー', hint, true);
+      $('midiState').textContent = '許可されませんでした';
+      return;
+    }
+    log('midi', '許可', 'MIDIへのアクセスが許可されました');
+    $('midiStart').disabled = true;
+    midiAccess.onstatechange = ev => {
+      const p = ev.port;
+      log('midi', '状態変化', `${p.type === 'input' ? '入力' : '出力'} ${p.name || '(名前なし)'}: ${p.state} / ${p.connection}`);
+      if (p.type === 'input' && p.state === 'disconnected') routes.midi.drops++;
+      bindMidiInputs();
+      renderMidiPorts();
+    };
+    bindMidiInputs();
+    renderMidiPorts();
+  }
+
+  function bindMidiInputs() {
+    midiAccess.inputs.forEach(inp => {
+      if (!inp._bound) {
+        inp.onmidimessage = ev => handleMidi('midi', Array.from(ev.data));
+        inp._bound = true;
+      }
+    });
+  }
+
+  function renderMidiPorts() {
+    const r = routes.midi;
+    const ins = [...midiAccess.inputs.values()];
+    const outs = [...midiAccess.outputs.values()];
+    const anyIn = ins.some(p => p.state === 'connected');
+    if (anyIn && !r.connected) { r.connected = true; r.since = Date.now(); r.checks.conn = true; }
+    if (!anyIn && r.connected) { r.connected = false; r.since = null; }
+    $('midiState').textContent = anyIn
+      ? `入力 ${ins.filter(p => p.state === 'connected').length} 件を検出`
+      : 'MIDI入力が見つかりません。OS側の接続を確認してください。';
+    $('midiPorts').innerHTML = [
+      ...ins.map(p => `<li>入力：${escapeHtml(p.name || '(名前なし)')}（${p.state}）</li>`),
+      ...outs.map(p => `<li>出力：${escapeHtml(p.name || '(名前なし)')}（${p.state}）</li>`)
+    ].join('');
+    const sel = $('midiOut');
+    const prev = sel.value;
+    sel.innerHTML = outs.length
+      ? outs.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}</option>`).join('')
+      : '<option value="">送信先なし</option>';
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+    $('midiSend').disabled = outs.length === 0;
+    if (ins.length) log('midi', '一覧', ins.map(p => p.name || '(名前なし)').join(' / '));
+    renderChecks();
+  }
+
+  function midiSendTest() {
+    const out = midiAccess && midiAccess.outputs.get($('midiOut').value);
+    if (!out) return;
+    try {
+      out.send([0x90, 60, 90]);
+      out.send([0x80, 60, 0], performance.now() + 400);
+      routes.midi.checks.send = true;
+      renderChecks();
+      log('midi', '送信', `C4 を ${out.name} へ送信しました。ピアノから音が出たか確認してください。`);
+    } catch (e) {
+      log('midi', 'エラー', `送信に失敗しました（${e.name}: ${e.message}）`, true);
+    }
+  }
+
+  // ---- 経路B：Web Bluetooth直接 ----
+  let bleDevice = null, bleChar = null, bleManual = false, bleSysex = false;
+
+  async function bleRequest(all) {
+    if (!navigator.bluetooth) {
+      log('ble', 'エラー', 'このブラウザはWeb Bluetoothに対応していません。Android版Chromeで開いてください。', true);
+      return;
+    }
+    try {
+      const opts = all
+        ? { acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }
+        : { filters: [{ services: [BLE_MIDI_SERVICE] }] };
+      const dev = await navigator.bluetooth.requestDevice(opts);
+      if (bleDevice && bleDevice !== dev) bleDevice.removeEventListener('gattserverdisconnected', onBleDisconnected);
+      bleDevice = dev;
+      bleDevice.addEventListener('gattserverdisconnected', onBleDisconnected);
+      log('ble', '選択', bleDevice.name || '(名前なし)');
+      await bleConnect();
+    } catch (e) {
+      explainBleError(e, 'デバイス選択');
+    }
+  }
+
+  function onBleValue(ev) {
+    const v = ev.target.value;
+    parseBleMidi(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+  }
+
+  async function bleConnect() {
+    if (!bleDevice) return;
+    $('bleState').textContent = '接続中…';
+    try {
+      const server = await bleDevice.gatt.connect();
+      const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
+      if (bleChar) bleChar.removeEventListener('characteristicvaluechanged', onBleValue);
+      bleChar = await svc.getCharacteristic(BLE_MIDI_CHAR);
+      bleChar.addEventListener('characteristicvaluechanged', onBleValue);
+      await bleChar.startNotifications();
+      const r = routes.ble;
+      r.connected = true; r.since = Date.now(); r.checks.conn = true;
+      bleManual = false; bleSysex = false;
+      $('bleState').textContent = `接続中：${bleDevice.name || '(名前なし)'}`;
+      setBleButtons(true);
+      renderChecks();
+      log('ble', '接続', 'BLE MIDIサービスに接続し、受信を開始しました');
+    } catch (e) {
+      $('bleState').textContent = '接続に失敗しました';
+      setBleButtons(false);
+      explainBleError(e, '接続');
+    }
+  }
+
+  function onBleDisconnected() {
+    const r = routes.ble;
+    const wasConnected = r.connected;
+    r.connected = false; r.since = null;
+    setBleButtons(false);
+    held.forEach((s, n) => { s.delete('ble'); if (s.size === 0) { held.delete(n); lightKey(n, false); } });
+    if (bleManual) {
+      $('bleState').textContent = '切断しました';
+      log('ble', '切断', '手動で切断しました');
+      return;
+    }
+    if (wasConnected) r.drops++;
+    $('bleState').textContent = '接続が切れました';
+    log('ble', '切断', '予期せず切断されました', true);
+    if ($('bleAuto').checked) {
+      log('ble', '再接続', '1秒後に再接続を試みます');
+      setTimeout(bleConnect, 1000);
+    }
+  }
+
+  function bleDisconnect() {
+    if (bleDevice && bleDevice.gatt.connected) {
+      bleManual = true;
+      bleDevice.gatt.disconnect();
+    }
+  }
+
+  function setBleButtons(connected) {
+    $('bleSend').disabled = !connected;
+    $('bleDisconnect').disabled = !connected;
+    $('bleReconnect').disabled = connected || !bleDevice;
+  }
+
+  function explainBleError(e, phase) {
+    let hint = `${e.name}: ${e.message}`;
+    if (e.name === 'NotFoundError') {
+      hint = '機器が選ばれませんでした。FP-30XのBluetoothがオンか、ほかのアプリが接続中でないか、Chromeに「付近のデバイス」または位置情報の権限があるかを確認してください。一覧に出ない場合は「すべての機器から選ぶ」を試してください。';
+    } else if (e.name === 'SecurityError') {
+      hint = 'セキュリティ上の理由で拒否されました。HTTPSの単独ページとして開いているか確認してください。';
+    } else if (e.name === 'NetworkError') {
+      hint = `接続できませんでした（${e.message}）。FP-30Xの[Function]ボタンを長押ししてペアリング待ちにしてから、もう一度試してください。`;
+    } else if (e.name === 'NotSupportedError') {
+      hint = `この機器にBLE MIDIサービスが見つかりませんでした（${e.message}）。選んだ機器がFP-30XのMIDI側か確認してください。`;
+    }
+    log('ble', `エラー（${phase}）`, hint, true);
+  }
+
+  // BLE MIDIパケットの解析（ヘッダ、タイムスタンプ、ランニングステータス、SysEx分割に対応）
+  function dataLen(s) {
+    if (s < 0xF0) { const t = s & 0xF0; return (t === 0xC0 || t === 0xD0) ? 1 : 2; }
+    if (s === 0xF1 || s === 0xF3) return 1;
+    if (s === 0xF2) return 2;
+    return 0;
+  }
+  function parseBleMidi(d) {
+    if (d.length < 2) return;
+    let i = 1, running = 0;
+    while (i < d.length) {
+      let b = d[i];
+      if (bleSysex) {
+        if (b === 0xF7) { bleSysex = false; i++; continue; }
+        if ((b & 0x80) && i + 1 < d.length && d[i + 1] === 0xF7) { bleSysex = false; i += 2; continue; }
+        i++; continue;
+      }
+      if (b & 0x80) {           // タイムスタンプバイト
+        i++;
+        if (i >= d.length) break;
+        b = d[i];
+        if (b & 0x80) {         // ステータスバイト
+          if (b === 0xF0) { bleSysex = true; i++; continue; }
+          if (b >= 0xF8) { handleMidi('ble', [b]); i++; continue; }
+          running = b; i++;
+        }
+      } else if (!running) { i++; continue; }
+      const len = dataLen(running);
+      const msg = [running];
+      for (let k = 0; k < len && i < d.length; k++) {
+        if (d[i] & 0x80) break;
+        msg.push(d[i++]);
+      }
+      if (msg.length === len + 1) handleMidi('ble', msg);
+      if (running >= 0xF0) running = 0;
+    }
+  }
+
+  async function bleWrite(bytes) {
+    const ts = Math.floor(performance.now()) & 0x1FFF;
+    const pkt = new Uint8Array([0x80 | ((ts >> 7) & 0x3F), 0x80 | (ts & 0x7F), ...bytes]);
+    if (bleChar.writeValueWithoutResponse) await bleChar.writeValueWithoutResponse(pkt);
+    else await bleChar.writeValue(pkt);
+  }
+
+  async function bleSendTest() {
+    if (!bleChar) return;
+    try {
+      await bleWrite([0x90, 60, 90]);
+      setTimeout(() => bleWrite([0x80, 60, 0]).catch(() => {}), 400);
+      routes.ble.checks.send = true;
+      renderChecks();
+      log('ble', '送信', 'C4 を送信しました。ピアノから音が出たか確認してください。');
+    } catch (e) {
+      log('ble', 'エラー', `送信に失敗しました（${e.name}: ${e.message}）`, true);
+    }
+  }
+
+  // ---- 判定と統計 ----
+  function renderChecks() {
+    for (const key of ['midi', 'ble']) {
+      const c = routes[key].checks;
+      const rows = [
+        [c.conn, '接続できた'],
+        [c.recv, '鍵盤の信号を受信できた'],
+        [c.send, 'ピアノへ送信した（音が出たかは目で確認）']
+      ];
+      $(key + 'Checks').innerHTML = rows.map(([ok, t]) =>
+        `<li><span class="mark ${ok ? 'yes' : ''}">${ok ? '○' : '－'}</span><span>${t}</span></li>`).join('');
+    }
+  }
+
+  function fmtDur(ms) {
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+    return (h ? h + '時間' : '') + (h || m ? m + '分' : '') + ss + '秒';
+  }
+
+  function renderStats() {
+    const now = Date.now();
+    for (const key of ['midi', 'ble']) {
+      const r = routes[key];
+      const rows = [
+        ['接続継続', r.connected && r.since ? fmtDur(now - r.since) : '－'],
+        ['最終受信', r.last ? fmtDur(now - r.last) + '前' : '－'],
+        ['受信数', `${r.msgs} 件（ノート ${r.notes}）`],
+        ['予期しない切断', `${r.drops} 回`]
+      ];
+      $(key + 'Stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    }
+  }
+
+  // ---- ログのコピー ----
+  async function copyLog() {
+    const envText = [...$('env').querySelectorAll('li')].map(li => {
+      const s = li.querySelectorAll('span');
+      return `${s[0].textContent}：${s[1].textContent}`;
+    }).join('\n');
+    const now = Date.now();
+    const summary = ['midi', 'ble'].map(k => {
+      const r = routes[k], c = r.checks;
+      return `[${r.label}] 接続:${c.conn ? '○' : '－'} 受信:${c.recv ? '○' : '－'} 送信:${c.send ? '○' : '－'} ` +
+        `受信数:${r.msgs} ノート:${r.notes} 切断:${r.drops}回 継続:${r.connected && r.since ? fmtDur(now - r.since) : '－'}`;
+    }).join('\n');
+    const text = `FP-30X 接続チェック ${new Date().toLocaleString('ja-JP')}\n\n${envText}\n\n${summary}\n\n${logLines.join('\n')}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      log(null, 'コピー', 'ログをクリップボードにコピーしました');
+    } catch (_) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      log(null, 'コピー', ok ? 'ログをクリップボードにコピーしました' : 'コピーできませんでした。画面のログを選択してコピーしてください。', !ok);
+    }
+  }
+
+  // ---- 初期化 ----
+  buildKeyboard();
+  renderEnv().then(items => {
+    const bad = items.filter(([k, [, c]]) => c === 'no').map(([k]) => k);
+    if (bad.length) log(null, '環境', `使えない項目があります：${bad.join('、')}`, true);
+    else log(null, '環境', '必要な機能はそろっています');
+  });
+  renderChecks();
+  renderStats();
+  setInterval(renderStats, 500);
+
+  $('midiStart').addEventListener('click', startMidi);
+  $('midiSend').addEventListener('click', midiSendTest);
+  $('bleFind').addEventListener('click', () => bleRequest(false));
+  $('bleFindAll').addEventListener('click', () => bleRequest(true));
+  $('bleSend').addEventListener('click', bleSendTest);
+  $('bleReconnect').addEventListener('click', bleConnect);
+  $('bleDisconnect').addEventListener('click', bleDisconnect);
+  $('copyLog').addEventListener('click', copyLog);
+  $('clearLog').addEventListener('click', () => { logLines.length = 0; $('log').innerHTML = ''; });
+
+  // 解析ロジックの自己テスト用（コンソールから呼べる）
+  window.__parseBleMidi = parseBleMidi;
+})();
+</script>
+</body>
+</html>
