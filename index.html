@@ -35,7 +35,7 @@
 
   /* 上部バー */
   .bar {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 8px 12px; background: var(--paper); border-bottom: 1px solid var(--line);
     flex: none;
   }
@@ -54,6 +54,20 @@
   button.primary { background: var(--ink); color: #fff; }
   button:disabled { opacity: .4; cursor: not-allowed; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
+
+  .viewtabs { display: flex; gap: 4px; flex: none; }
+  .tab { padding: 6px 10px; min-height: 40px; }
+  .tab[aria-pressed="true"] { background: var(--ink); color: #fff; }
+
+  /* 五線譜＋PDFの表示領域 */
+  .main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .staffArea { display: flex; flex-direction: column; min-height: 0; }
+  .main.mode-staff .staffArea { flex: 1 1 auto; }
+  .main.mode-staff .pdfPane { display: none; }
+  .main.mode-pdf .staffArea { display: none; }
+  .main.mode-pdf .pdfPane { flex: 1 1 auto; display: flex; }
+  .main.mode-split .staffArea { flex: 0 0 45%; }
+  .main.mode-split .pdfPane { flex: 1 1 auto; display: flex; }
 
   /* 五線譜 */
   .stage { flex: 1 1 auto; position: relative; min-height: 0; background: var(--paper); }
@@ -83,6 +97,17 @@
   .b { position: absolute; top: 0; height: 62%; background: var(--ink); z-index: 2; }
   .w.on, .b.on { background: var(--key); }
 
+  /* PDF楽譜 */
+  .pdfPane { display: none; flex-direction: column; min-height: 0; background: var(--paper); border-top: 1px solid var(--line); }
+  .pdfBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 10px;
+            border-bottom: 1px solid var(--line); flex: none; }
+  .pdfInfo { font-size: .82rem; color: var(--slate); flex: 1; min-width: 80px;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pdfPageLabel { font-size: .85rem; color: var(--slate); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pdfScroll { flex: 1 1 auto; overflow: auto; min-height: 0; background: #77808c;
+               display: flex; justify-content: center; }
+  .pdfScroll canvas { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); margin: 10px auto; }
+
   /* 設定 */
   .panel { display: none; padding: 12px; background: var(--paper); border-top: 1px solid var(--line);
            max-height: 46vh; overflow: auto; flex: none; }
@@ -103,22 +128,47 @@
 <div class="bar">
   <h1>五線譜モニター</h1>
   <span class="status" id="status">MIDIの使用を許可してください</span>
+  <div class="viewtabs" id="viewtabs" role="tablist">
+    <button class="tab" data-mode="staff" aria-pressed="true">五線譜</button>
+    <button class="tab" data-mode="pdf" aria-pressed="false">PDF</button>
+    <button class="tab" data-mode="split" aria-pressed="false">分割</button>
+  </div>
   <button class="primary" id="start">MIDI許可</button>
   <button id="toggle" aria-expanded="false">設定</button>
 </div>
 
-<div class="stage">
-  <canvas id="cv"></canvas>
-  <div class="hint" id="hint">鍵盤を弾くと、ここに音符が流れます</div>
-</div>
+<div class="main mode-staff" id="main">
+  <div class="staffArea">
+    <div class="stage">
+      <canvas id="cv"></canvas>
+      <div class="hint" id="hint">鍵盤を弾くと、ここに音符が流れます</div>
+    </div>
 
-<div class="foot">
-  <div class="readout">
-    <span class="now idle" id="now" aria-live="polite">--</span>
-    <span class="nowsub" id="nowsub"></span>
-    <span class="pedal" id="pedal">ペダル</span>
+    <div class="foot">
+      <div class="readout">
+        <span class="now idle" id="now" aria-live="polite">--</span>
+        <span class="nowsub" id="nowsub"></span>
+        <span class="pedal" id="pedal">ペダル</span>
+      </div>
+      <div class="kb show" id="kb" aria-hidden="true"></div>
+    </div>
   </div>
-  <div class="kb show" id="kb" aria-hidden="true"></div>
+
+  <div class="pdfPane" id="pdfPane">
+    <div class="pdfBar">
+      <button id="pdfOpenBtn">PDFを開く</button>
+      <input type="file" id="pdfFile" accept="application/pdf" hidden>
+      <span class="pdfInfo" id="pdfInfo">PDF未選択</span>
+      <button id="pdfPrev" disabled>前へ</button>
+      <span id="pdfPageLabel">- / -</span>
+      <button id="pdfNext" disabled>次へ</button>
+      <button id="pdfZoomOut" disabled>縮小</button>
+      <button id="pdfZoomIn" disabled>拡大</button>
+    </div>
+    <div class="pdfScroll" id="pdfScroll">
+      <canvas id="pdfCanvas"></canvas>
+    </div>
+  </div>
 </div>
 
 <div class="panel" id="panel">
@@ -144,42 +194,84 @@
       <label class="chk"><input type="checkbox" id="wake"> 画面を消さない</label>
     </div>
   </div>
-  <p class="note">設定はページを再読み込みすると初期値に戻ります。五線から離れすぎた音は 8va / 8vb などの記号を付けて、五線の近くに移動して表示します。</p>
+  <p class="note">設定（音名表示・速さ・異名同音併記・音の長さ表示・鍵盤表示・画面ロック・表示モード）は次回起動時も保持されます。五線から離れすぎた音は 8va / 8vb などの記号を付けて、五線の近くに移動して表示します。PDFは著作権保護のため保存されず、開くたびに端末から選び直します。</p>
 </div>
 
-<script>
+<script type="module">
+import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.min.mjs";
+
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
 
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.worker.min.mjs";
+
   /* ---------- 音名・譜表位置の定義 ---------- */
-  const N_SHARP  = ['C','C\u266F','D','D\u266F','E','F','F\u266F','G','G\u266F','A','A\u266F','B'];
-  const N_FLAT   = ['C','D\u266D','D','E\u266D','E','F','G\u266D','G','A\u266D','A','B\u266D','B'];
-  const J_SHARP  = ['ド','ド\u266F','レ','レ\u266F','ミ','ファ','ファ\u266F','ソ','ソ\u266F','ラ','ラ\u266F','シ'];
-  const J_FLAT   = ['ド','レ\u266D','レ','ミ\u266D','ミ','ファ','ソ\u266D','ソ','ラ\u266D','ラ','シ\u266D','シ'];
+  const N_SHARP  = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+  const N_FLAT   = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+  const J_SHARP  = ['ド','ド♯','レ','レ♯','ミ','ファ','ファ♯','ソ','ソ♯','ラ','ラ♯','シ'];
+  const J_FLAT   = ['ド','レ♭','レ','ミ♭','ミ','ファ','ソ♭','ソ','ラ♭','ラ','シ♭','シ'];
   const L_SHARP  = [0,0,1,1,2,3,3,4,4,5,5,6];   // ♯表記のときの音名字（C=0…B=6）
   const L_FLAT   = [0,1,1,2,2,3,4,4,5,5,6,6];   // ♭表記のときの音名字
   const IS_BLACK = [0,1,0,1,0,0,1,0,1,0,1,0];
   const LOW = 21, HIGH = 108;                   // 88鍵 A0〜C8
 
-  // ダイアトニック段位（半音ではなく「線と間」の位置）
+  // ダイアトニック段位（半音ではなく「線と間」の位置、半段単位）
   const stepOf = (n, flat) => (Math.floor(n / 12) - 1) * 7 + (flat ? L_FLAT : L_SHARP)[n % 12];
   const octOf  = n => Math.floor(n / 12) - 1;
   const nameEn = (n, flat) => (flat ? N_FLAT : N_SHARP)[n % 12] + octOf(n);
   const nameJa = (n, flat) => (flat ? J_FLAT : J_SHARP)[n % 12];
 
-  const STEP_E4 = 30, STEP_F5 = 38;             // 五線の下端線と上端線
-  const MARGIN  = 11;                           // 加線の許容量（半段単位）
+  // 大譜表：ト音（E4〜F5）とヘ音（G2〜A3）。中央C(28)はどちらからも加線1本の等距離
+  const STAFF = {
+    treble: { bottom: 30, top: 38, margin: 11 },
+    bass:   { bottom: 18, top: 26, margin: 11 }
+  };
+  const staffOf = n => n >= 60 ? 'treble' : 'bass';   // 中央C(MIDI60)以上はト音、未満はヘ音
 
   /* ---------- 状態 ---------- */
   const cfg = { speed: 10, nameMode: 'en', enh: true, showLen: true };
   const notes = [];            // {n, vel, on, off}
   const live  = new Map();     // MIDIノート番号 -> note オブジェクト
   let pedalOn = false, midiAccess = null, wakeLock = null, raf = 0;
+  let viewMode = 'staff';
+
+  /* ---------- 設定の永続化 ---------- */
+  const SETTINGS_KEY = 'fumendai:index:settings';
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+        nameMode: cfg.nameMode,
+        speed: cfg.speed,
+        enh: cfg.enh,
+        showLen: cfg.showLen,
+        showKb: $('showKb').checked,
+        wake: $('wake').checked,
+        viewMode: viewMode
+      }));
+    } catch (_) {}
+  }
+  function applySettings(s) {
+    if (!s) return;
+    if (s.nameMode) { cfg.nameMode = s.nameMode; $('nameMode').value = s.nameMode; }
+    if (typeof s.speed === 'number') { cfg.speed = s.speed; $('speed').value = s.speed; $('spdVal').textContent = s.speed; }
+    if (typeof s.enh === 'boolean') { cfg.enh = s.enh; $('enh').checked = s.enh; }
+    if (typeof s.showLen === 'boolean') { cfg.showLen = s.showLen; $('showLen').checked = s.showLen; }
+    if (typeof s.showKb === 'boolean') { $('showKb').checked = s.showKb; $('kb').classList.toggle('show', s.showKb); }
+    if (s.wake) { $('wake').checked = true; setWake(true); }
+    if (s.viewMode) setViewMode(s.viewMode, true);
+  }
 
   /* ---------- キャンバス ---------- */
   const cv = $('cv'), ctx = cv.getContext('2d');
-  let W = 0, H = 0, spacing = 16, staffTop = 0, clefRight = 0;
+  let W = 0, H = 0, spacing = 16, staffTopTreble = 0, staffTopBass = 0, clefRight = 0;
 
   const cssCache = {};
   function getCSS(v) {
@@ -195,64 +287,78 @@
     cv.width = Math.round(W * dpr);
     cv.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    spacing = Math.max(7, Math.min(26, (H - 34) / 15));   // 下に音名欄を残す
-    staffTop = (H - 34) / 2 - spacing * 2;
+    const usable = H - 34;                                  // 下に音名欄を残す
+    spacing = Math.max(6, Math.min(20, usable / 26));        // ト音・ヘ音2段分の目安
+    const staffH = spacing * 4;                              // 5線＝間隔4つ分
+    const gap = spacing * 4;                                 // 段間（中央Cの加線＋余白）
+    const totalH = staffH * 2 + gap;
+    const top0 = Math.max(0, (usable - totalH) / 2);
+    staffTopTreble = top0;
+    staffTopBass = top0 + staffH + gap;
     clefRight = Math.round(spacing * 3.2);
     draw();
   }
 
-  const yOfStep = s => staffTop + 4 * spacing - (s - STEP_E4) * spacing / 2;
+  const staffTopOf = staff => staff === 'treble' ? staffTopTreble : staffTopBass;
+  const yOfStep = (s, staff) => staffTopOf(staff) + 4 * spacing - (s - STAFF[staff].bottom) * spacing / 2;
 
-  // 五線から離れすぎた音はオクターブ単位で寄せる
-  function place(step) {
+  // 五線から離れすぎた音はオクターブ単位で寄せる（段ごとに判定）
+  function place(step, staff) {
+    const s = STAFF[staff];
     let shift = 0;
-    while (step > STEP_F5 + MARGIN) { step -= 7; shift++; }
-    while (step < STEP_E4 - MARGIN) { step += 7; shift--; }
+    while (step > s.top + s.margin) { step -= 7; shift++; }
+    while (step < s.bottom - s.margin) { step += 7; shift--; }
     return { step: step, shift: shift };
   }
   const shiftLabel = s => s === 1 ? '8va' : s === 2 ? '15ma' : s === 3 ? '22ma'
                         : s === -1 ? '8vb' : s === -2 ? '15mb' : s === -3 ? '22mb'
                         : s > 0 ? s * 7 + '↑' : s < 0 ? -s * 7 + '↓' : '';
 
-  /* ---------- ト音記号 ---------- */
-  let clefGlyph = null;   // 𝄞 が使える環境かを起動時に判定
-  function detectClef() {
+  /* ---------- ト音記号・ヘ音記号 ---------- */
+  const clefGlyph = { treble: null, bass: null };  // 𝄞 / 𝄢 が使える環境かを起動時に判定
+  function detectGlyph(cp) {
     const t = document.createElement('canvas').getContext('2d');
     t.font = '64px serif';
-    const miss  = t.measureText('\u{10FFFF}').width;
-    const glyph = t.measureText('\u{1D11E}').width;
-    clefGlyph = (glyph > 0 && Math.abs(glyph - miss) > 0.5) ? '\u{1D11E}' : null;
+    const miss = t.measureText('\u{10FFFF}').width;
+    const w = t.measureText(cp).width;
+    return (w > 0 && Math.abs(w - miss) > 0.5) ? cp : null;
+  }
+  function detectClef() {
+    clefGlyph.treble = detectGlyph('\u{1D11E}');
+    clefGlyph.bass = detectGlyph('\u{1D122}');
   }
 
-  function drawClef() {
-    const yMid = staffTop + 2 * spacing;
-    if (clefGlyph) {
+  function drawClef(staff) {
+    const top = staffTopOf(staff);
+    const glyph = clefGlyph[staff];
+    // ト音は中央線(B4)、ヘ音は第4線(F3)を基準に据える
+    const anchorY = staff === 'treble' ? top + 2 * spacing : top + 1 * spacing;
+    if (glyph) {
       const size = spacing * 7;
       ctx.font = size + 'px serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
-      const m = ctx.measureText(clefGlyph);
+      const m = ctx.measureText(glyph);
       const asc  = m.actualBoundingBoxAscent  || size * 0.8;
       const desc = m.actualBoundingBoxDescent || size * 0.2;
       const scale = (spacing * 7) / Math.max(1, asc + desc);
       ctx.save();
-      ctx.translate(spacing * 0.5, yMid);
+      ctx.translate(spacing * 0.5, anchorY);
       ctx.scale(scale, scale);
       ctx.fillStyle = getCSS('--ink');
-      ctx.fillText(clefGlyph, 0, (asc - desc) / 2);
+      ctx.fillText(glyph, 0, (asc - desc) / 2);
       ctx.restore();
     } else {
-      // 代替表示：ト音（G）の線を丸印で示す
-      const yG = yOfStep(32);
+      // 代替表示：ト音(G)・ヘ音(F)の基準線を丸印で示す
       ctx.fillStyle = getCSS('--ink');
       ctx.beginPath();
-      ctx.arc(spacing * 1.5, yG, spacing * 0.72, 0, Math.PI * 2);
+      ctx.arc(spacing * 1.5, anchorY, spacing * 0.72, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.font = 'bold ' + Math.round(spacing * 0.95) + 'px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('G', spacing * 1.5, yG + spacing * 0.05);
+      ctx.fillText(staff === 'treble' ? 'G' : 'F', spacing * 1.5, anchorY + spacing * 0.05);
     }
   }
 
@@ -262,12 +368,15 @@
     ctx.strokeStyle = getCSS('--line');
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const y = Math.round(staffTop + i * spacing) + 0.5;
-      ctx.moveTo(0, y); ctx.lineTo(W, y);
+    for (const top of [staffTopTreble, staffTopBass]) {
+      for (let i = 0; i < 5; i++) {
+        const y = Math.round(top + i * spacing) + 0.5;
+        ctx.moveTo(0, y); ctx.lineTo(W, y);
+      }
     }
     ctx.stroke();
-    drawClef();
+    drawClef('treble');
+    drawClef('bass');
   }
 
   function head(x, y, filled, alpha) {
@@ -282,13 +391,14 @@
     ctx.restore();
   }
 
-  function ledgers(x, step) {
+  function ledgers(x, step, staff) {
+    const s = STAFF[staff];
     ctx.strokeStyle = getCSS('--ink');
     ctx.lineWidth = Math.max(1, spacing * 0.09);
     const w = spacing * 1.05;
     ctx.beginPath();
-    for (let s = STEP_F5 + 2; s <= step; s += 2) { const y = Math.round(yOfStep(s)) + .5; ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); }
-    for (let s = STEP_E4 - 2; s >= step; s -= 2) { const y = Math.round(yOfStep(s)) + .5; ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); }
+    for (let st = s.top + 2; st <= step; st += 2) { const y = Math.round(yOfStep(st, staff)) + .5; ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); }
+    for (let st = s.bottom - 2; st >= step; st -= 2) { const y = Math.round(yOfStep(st, staff)) + .5; ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); }
     ctx.stroke();
   }
 
@@ -324,14 +434,15 @@
 
       const isB = IS_BLACK[nt.n % 12] === 1;
       const both = cfg.enh && isB;
+      const staff = staffOf(nt.n);
 
       // 音の長さのバー
       if (cfg.showLen && xEnd - x > 2) {
-        const p = place(stepOf(nt.n, false));
+        const p = place(stepOf(nt.n, false), staff);
         ctx.save();
         ctx.globalAlpha = .22;
         ctx.fillStyle = getCSS('--key');
-        ctx.fillRect(x, yOfStep(p.step) - spacing * 0.2, xEnd - x, spacing * 0.4);
+        ctx.fillRect(x, yOfStep(p.step, staff) - spacing * 0.2, xEnd - x, spacing * 0.4);
         ctx.restore();
       }
 
@@ -354,10 +465,12 @@
   }
 
   function drawOne(nt, x, flat, alpha) {
-    const p = place(stepOf(nt.n, flat));
-    const y = yOfStep(p.step);
-    if (p.step > STEP_F5 + 1 || p.step < STEP_E4 - 1) {
-      ctx.save(); ctx.globalAlpha = alpha; ledgers(x, p.step); ctx.restore();
+    const staff = staffOf(nt.n);
+    const s = STAFF[staff];
+    const p = place(stepOf(nt.n, flat), staff);
+    const y = yOfStep(p.step, staff);
+    if (p.step > s.top + 1 || p.step < s.bottom - 1) {
+      ctx.save(); ctx.globalAlpha = alpha; ledgers(x, p.step, staff); ctx.restore();
     }
     head(x, y, nt.off == null, alpha);
 
@@ -369,7 +482,7 @@
       ctx.font = Math.round(spacing * 1.5) + 'px serif';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      ctx.fillText(flat ? '\u266D' : '\u266F', x - spacing * 0.8, y);
+      ctx.fillText(flat ? '♭' : '♯', x - spacing * 0.8, y);
       ctx.restore();
     }
     // オクターブ移動の注記
@@ -508,6 +621,72 @@
     if (document.visibilityState === 'visible' && $('wake').checked && !wakeLock) setWake(true);
   });
 
+  /* ---------- 表示モード（五線譜／PDF／分割） ---------- */
+  function setViewMode(mode, skipSave) {
+    viewMode = mode;
+    $('main').className = 'main mode-' + mode;
+    document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    setTimeout(() => {
+      layout();
+      if (pdfDoc) renderPdfPage();
+    }, 0);
+    if (!skipSave) saveSettings();
+  }
+
+  /* ---------- PDF楽譜 ---------- */
+  let pdfDoc = null, pdfPageNum = 1, pdfNumPages = 0, pdfScale = 1.2, pdfRendering = false, pdfPendingPage = false;
+  const pdfCanvas = $('pdfCanvas'), pdfCtx = pdfCanvas.getContext('2d');
+
+  async function openPdfFile(file) {
+    if (!file) return;
+    $('pdfInfo').textContent = '読み込み中…';
+    try {
+      const buf = await file.arrayBuffer();
+      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      pdfNumPages = pdfDoc.numPages;
+      pdfPageNum = 1;
+      $('pdfInfo').textContent = file.name;
+      $('pdfPrev').disabled = false;
+      $('pdfNext').disabled = false;
+      $('pdfZoomOut').disabled = false;
+      $('pdfZoomIn').disabled = false;
+      await renderPdfPage();
+    } catch (e) {
+      pdfDoc = null;
+      $('pdfInfo').textContent = 'PDFを開けませんでした（' + e.message + '）';
+    }
+  }
+
+  async function renderPdfPage() {
+    if (!pdfDoc) return;
+    if (pdfRendering) { pdfPendingPage = true; return; }
+    pdfRendering = true;
+    try {
+      const page = await pdfDoc.getPage(pdfPageNum);
+      const viewport = page.getViewport({ scale: pdfScale });
+      pdfCanvas.width = viewport.width;
+      pdfCanvas.height = viewport.height;
+      await page.render({ canvasContext: pdfCtx, viewport: viewport }).promise;
+      $('pdfPageLabel').textContent = pdfPageNum + ' / ' + pdfNumPages;
+    } catch (_) {
+      // 描画中のページ切替などは無視（次のレンダリングが上書きする）
+    } finally {
+      pdfRendering = false;
+      if (pdfPendingPage) { pdfPendingPage = false; renderPdfPage(); }
+    }
+  }
+
+  function pdfGoPage(delta) {
+    if (!pdfDoc) return;
+    const n = Math.min(pdfNumPages, Math.max(1, pdfPageNum + delta));
+    if (n !== pdfPageNum) { pdfPageNum = n; renderPdfPage(); }
+  }
+  function pdfZoom(delta) {
+    if (!pdfDoc) return;
+    pdfScale = Math.min(3, Math.max(0.5, Math.round((pdfScale + delta) * 10) / 10));
+    renderPdfPage();
+  }
+
   /* ---------- 初期化 ---------- */
   detectClef();
   layout();
@@ -516,22 +695,35 @@
   window.addEventListener('orientationchange', () => setTimeout(layout, 250));
 
   $('start').addEventListener('click', start);
+  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => setViewMode(b.dataset.mode)));
   $('toggle').addEventListener('click', () => {
     const open = $('panel').classList.toggle('show');
     $('toggle').setAttribute('aria-expanded', String(open));
     setTimeout(layout, 0);
   });
   $('inSel').addEventListener('change', bind);
-  $('nameMode').addEventListener('change', e => { cfg.nameMode = e.target.value; draw(); });
-  $('speed').addEventListener('input', e => { cfg.speed = +e.target.value; $('spdVal').textContent = e.target.value; draw(); });
-  $('enh').addEventListener('change', e => { cfg.enh = e.target.checked; draw(); });
-  $('showLen').addEventListener('change', e => { cfg.showLen = e.target.checked; draw(); });
-  $('showKb').addEventListener('change', e => { $('kb').classList.toggle('show', e.target.checked); setTimeout(layout, 0); });
-  $('wake').addEventListener('change', e => setWake(e.target.checked));
+  $('nameMode').addEventListener('change', e => { cfg.nameMode = e.target.value; draw(); saveSettings(); });
+  $('speed').addEventListener('input', e => { cfg.speed = +e.target.value; $('spdVal').textContent = e.target.value; draw(); saveSettings(); });
+  $('enh').addEventListener('change', e => { cfg.enh = e.target.checked; draw(); saveSettings(); });
+  $('showLen').addEventListener('change', e => { cfg.showLen = e.target.checked; draw(); saveSettings(); });
+  $('showKb').addEventListener('change', e => { $('kb').classList.toggle('show', e.target.checked); setTimeout(layout, 0); saveSettings(); });
+  $('wake').addEventListener('change', e => { setWake(e.target.checked); saveSettings(); });
 
-  // 動作確認用（コンソールから呼べる）
-  window.__place = place;
+  $('pdfOpenBtn').addEventListener('click', () => $('pdfFile').click());
+  $('pdfFile').addEventListener('change', e => openPdfFile(e.target.files[0]));
+  $('pdfPrev').addEventListener('click', () => pdfGoPage(-1));
+  $('pdfNext').addEventListener('click', () => pdfGoPage(1));
+  $('pdfZoomOut').addEventListener('click', () => pdfZoom(-0.2));
+  $('pdfZoomIn').addEventListener('click', () => pdfZoom(0.2));
+
+  applySettings(loadSettings());
+
+  // 動作確認用（コンソールから呼べる。実機のMIDIなしで描画を確認するため）
+  window.__place = (step, staff) => place(step, staff || 'treble');
   window.__stepOf = stepOf;
+  window.__staffOf = staffOf;
+  window.__noteOn = noteOn;
+  window.__noteOff = noteOff;
 })();
 </script>
 </body>
