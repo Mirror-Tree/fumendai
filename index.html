@@ -55,9 +55,7 @@
   button:disabled { opacity: .4; cursor: not-allowed; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
 
-  .viewtabs { display: flex; gap: 4px; flex: none; }
-  .tab { padding: 6px 10px; min-height: 40px; }
-  .tab[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  #viewMode { width: auto; flex: none; border-color: var(--ink); }
 
   /* 五線譜＋PDFの表示領域 */
   .main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
@@ -107,9 +105,13 @@
 
   /* PDF楽譜 */
   .pdfPane { display: none; flex-direction: column; min-height: 0; background: var(--paper); border-top: 1px solid var(--line); }
-  .pdfBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 10px;
+  /* 左：ファイル／中央：ページ送り／右：幅合わせ。左右を同じ幅(1fr)にしてページ送りをバーの中央に置く */
+  .pdfBar { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: center; padding: 6px 10px;
             border-bottom: 1px solid var(--line); flex: none; }
-  .pdfInfo { font-size: .82rem; color: var(--slate); flex: 1; min-width: 80px;
+  .pdfLeft { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .pdfPager { display: flex; align-items: center; gap: 6px; }
+  .pdfRight { display: flex; justify-content: flex-end; }
+  .pdfInfo { font-size: .82rem; color: var(--slate); flex: 1; min-width: 0;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #pdfPageLabel { font-size: .85rem; color: var(--slate); font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* touch-action:none でブラウザ標準のパン/ピンチを止め、JS側で1本指パン・2本指ピンチを処理する */
@@ -154,11 +156,11 @@
   <h1>五線譜モニター</h1>
   <span class="status" id="status">MIDIの使用を許可してください</span>
   <button id="keyBtn" aria-haspopup="dialog">調：ハ長調／イ短調</button>
-  <div class="viewtabs" id="viewtabs" role="tablist">
-    <button class="tab" data-mode="staff" aria-pressed="true">五線譜</button>
-    <button class="tab" data-mode="pdf" aria-pressed="false">PDF</button>
-    <button class="tab" data-mode="split" aria-pressed="false">分割</button>
-  </div>
+  <select id="viewMode" aria-label="表示">
+    <option value="staff">五線譜</option>
+    <option value="split">分割</option>
+    <option value="pdf">PDF</option>
+  </select>
   <button class="primary" id="start">MIDI許可</button>
   <button id="toggle" aria-expanded="false">設定</button>
 </div>
@@ -184,15 +186,19 @@
 
   <div class="pdfPane" id="pdfPane">
     <div class="pdfBar">
-      <button id="pdfOpenBtn">PDFを開く</button>
-      <input type="file" id="pdfFile" accept="application/pdf" hidden>
-      <span class="pdfInfo" id="pdfInfo">PDF未選択</span>
-      <button id="pdfPrev" disabled>前へ</button>
-      <span id="pdfPageLabel">- / -</span>
-      <button id="pdfNext" disabled>次へ</button>
-      <button id="pdfZoomOut" disabled>縮小</button>
-      <button id="pdfZoomIn" disabled>拡大</button>
-      <button id="pdfFit" disabled>幅合わせ</button>
+      <div class="pdfLeft">
+        <button id="pdfOpenBtn">PDFを開く</button>
+        <input type="file" id="pdfFile" accept="application/pdf" hidden>
+        <span class="pdfInfo" id="pdfInfo">PDF未選択</span>
+      </div>
+      <div class="pdfPager">
+        <button id="pdfPrev" disabled>前へ</button>
+        <span id="pdfPageLabel">- / -</span>
+        <button id="pdfNext" disabled>次へ</button>
+      </div>
+      <div class="pdfRight">
+        <button id="pdfFit" disabled>幅合わせ</button>
+      </div>
     </div>
     <div class="pdfScroll" id="pdfScroll">
       <canvas id="pdfCanvas"></canvas>
@@ -769,7 +775,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   function setViewMode(mode, skipSave) {
     viewMode = mode;
     $('main').className = 'main mode-' + mode;
-    document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    $('viewMode').value = mode;
     setTimeout(layout, 0);
     if (!skipSave) saveSettings();
   }
@@ -890,7 +896,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
       pdfNumPages = pdfDoc.numPages;
       pdfPageNum = 1;
       $('pdfInfo').textContent = file.name;
-      ['pdfPrev', 'pdfNext', 'pdfZoomOut', 'pdfZoomIn', 'pdfFit'].forEach(id => { $(id).disabled = false; });
+      ['pdfPrev', 'pdfNext', 'pdfFit'].forEach(id => { $(id).disabled = false; });
       await pdfFitWidth();
     } catch (e) {
       pdfDoc = null;
@@ -953,7 +959,6 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     pdfScroll.scrollTop = cy * k + pdfCanvas.offsetTop - fy;
     scheduleRender();
   }
-  const pdfZoomCenter = factor => pdfZoomTo(pdfScale * factor, pdfScroll.clientWidth / 2, pdfScroll.clientHeight / 2);
 
   async function pdfFitWidth() {
     if (!pdfDoc) return;
@@ -1040,7 +1045,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   $('keyBtn').addEventListener('click', () => keyDialog.showModal());
   $('keyClose').addEventListener('click', () => keyDialog.close());
   keyDialog.addEventListener('click', e => { if (e.target === keyDialog) keyDialog.close(); });   // 枠外（背景）を押したら閉じる
-  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => setViewMode(b.dataset.mode)));
+  $('viewMode').addEventListener('change', e => setViewMode(e.target.value));
   $('toggle').addEventListener('click', () => {
     const open = $('panel').classList.toggle('show');
     $('toggle').setAttribute('aria-expanded', String(open));
@@ -1058,8 +1063,6 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   $('pdfFile').addEventListener('change', e => openPdfFile(e.target.files[0]));
   $('pdfPrev').addEventListener('click', () => pdfGoPage(-1));
   $('pdfNext').addEventListener('click', () => pdfGoPage(1));
-  $('pdfZoomOut').addEventListener('click', () => pdfZoomCenter(1 / 1.25));
-  $('pdfZoomIn').addEventListener('click', () => pdfZoomCenter(1.25));
   $('pdfFit').addEventListener('click', pdfFitWidth);
 
   applySplit();
