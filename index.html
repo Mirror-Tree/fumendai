@@ -123,6 +123,9 @@
   .panel { display: none; padding: 12px; background: var(--paper); border-top: 1px solid var(--line);
            max-height: 46vh; overflow: auto; flex: none; }
   .panel.show { display: block; }
+  .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .panelHead h2 { font-size: 1rem; margin: 0; }
+  #toggle[aria-expanded="true"] { background: var(--ink); color: #fff; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 20px; }
   .fld { display: flex; flex-direction: column; gap: 4px; }
   .fld > span { font-size: .82rem; color: var(--slate); }
@@ -162,7 +165,7 @@
     <option value="pdf">PDF</option>
   </select>
   <button class="primary" id="start">MIDI許可</button>
-  <button id="toggle" aria-expanded="false">設定</button>
+  <button id="toggle" aria-expanded="false" aria-controls="panel">設定</button>
 </div>
 
 <div class="main mode-staff" id="main">
@@ -207,6 +210,10 @@
 </div>
 
 <div class="panel" id="panel">
+  <div class="panelHead">
+    <h2>設定</h2>
+    <button id="panelClose">閉じる</button>
+  </div>
   <div class="grid">
     <label class="fld"><span>MIDI入力</span>
       <select id="inSel"><option value="">検出中…</option></select>
@@ -1046,11 +1053,16 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   $('keyClose').addEventListener('click', () => keyDialog.close());
   keyDialog.addEventListener('click', e => { if (e.target === keyDialog) keyDialog.close(); });   // 枠外（背景）を押したら閉じる
   $('viewMode').addEventListener('change', e => setViewMode(e.target.value));
-  $('toggle').addEventListener('click', () => {
-    const open = $('panel').classList.toggle('show');
+  function setPanel(open) {
+    if ($('panel').classList.contains('show') === open) return;
+    $('panel').classList.toggle('show', open);
     $('toggle').setAttribute('aria-expanded', String(open));
     setTimeout(layout, 0);
-  });
+  }
+  $('toggle').addEventListener('click', () => setPanel(!$('panel').classList.contains('show')));
+  $('panelClose').addEventListener('click', () => setPanel(false));
+  // 五線譜・PDFの領域に触れたら閉じる（キャプチャ段階で拾うので、そのままPDFのパン等も続けて行える）
+  $('main').addEventListener('pointerdown', () => setPanel(false), true);
   $('inSel').addEventListener('change', bind);
   $('nameMode').addEventListener('change', e => { cfg.nameMode = e.target.value; draw(); saveSettings(); });
   $('speed').addEventListener('input', e => { cfg.speed = +e.target.value; $('spdVal').textContent = e.target.value; draw(); saveSettings(); });
