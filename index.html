@@ -120,8 +120,11 @@
   #pdfCanvas { display: block; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); margin: 10px auto; }
 
   /* 設定 */
-  .panel { display: none; padding: 12px; background: var(--paper); border-top: 1px solid var(--line);
-           max-height: 46vh; overflow: auto; flex: none; }
+  /* 画面下部に重ねて表示する（レイアウトから外すので、開閉しても五線譜・PDFの表示領域は変わらない） */
+  .panel { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+           padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--paper);
+           border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(29, 42, 56, .18);
+           max-height: 46vh; overflow: auto; overscroll-behavior: contain; }
   .panel.show { display: block; }
   .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .panelHead h2 { font-size: 1rem; margin: 0; }
@@ -1057,11 +1060,10 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     if ($('panel').classList.contains('show') === open) return;
     $('panel').classList.toggle('show', open);
     $('toggle').setAttribute('aria-expanded', String(open));
-    setTimeout(layout, 0);
   }
   $('toggle').addEventListener('click', () => setPanel(!$('panel').classList.contains('show')));
   $('panelClose').addEventListener('click', () => setPanel(false));
-  // 五線譜・PDFの領域に触れたら閉じる（キャプチャ段階で拾うので、そのままPDFのパン等も続けて行える）
+  // 設定画面の外（五線譜・PDFの領域）に触れたら閉じる（キャプチャ段階で拾うので、そのままPDFのパン等も続けて行える）
   $('main').addEventListener('pointerdown', () => setPanel(false), true);
   $('inSel').addEventListener('change', bind);
   $('nameMode').addEventListener('change', e => { cfg.nameMode = e.target.value; draw(); saveSettings(); });
