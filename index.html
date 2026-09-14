@@ -86,8 +86,8 @@
   }
   .hint.off { display: none; }
 
-  /* 下部 */
-  .foot { flex: none; background: var(--paper); border-top: 1px solid var(--line); padding: 8px 12px; }
+  /* 音名・ペダル欄と鍵盤（五線譜の上） */
+  .readoutBar { flex: none; background: var(--paper); border-bottom: 1px solid var(--line); padding: 8px 12px; }
   .readout { display: flex; align-items: baseline; gap: 12px; }
   .now { font-size: 1.6rem; font-weight: 700; min-width: 4.5em; font-variant-numeric: tabular-nums; }
   .now.idle { color: var(--line); }
@@ -130,6 +130,22 @@
   input[type=checkbox] { width: 20px; height: 20px; }
   input[type=range] { width: 100%; }
   .note { font-size: .78rem; color: var(--slate); margin: 10px 0 0; }
+
+  /* 調の選択 */
+  .keyDialog { border: 0; border-radius: 12px; padding: 0; width: 92vw; max-width: 860px; max-height: 88vh;
+               overflow: auto; background: var(--paper); color: var(--ink); }
+  .keyDialog::backdrop { background: rgba(29, 42, 56, .45); }
+  .kdInner { padding: 12px 14px 16px; }
+  .kdHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .kdHead h2 { font-size: 1.05rem; margin: 0; }
+  .kgroup { font-size: .82rem; color: var(--slate); font-weight: 700; margin: 12px 0 6px; }
+  .kgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+  .kopt { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px;
+          min-height: 0; border: 1px solid var(--line); border-radius: 10px; white-space: normal; }
+  .kopt[aria-pressed="true"] { border-color: var(--key); box-shadow: inset 0 0 0 2px var(--key); }
+  .kopt canvas { display: block; width: 120px; height: 60px; }
+  .kname { font-size: .85rem; line-height: 1.3; text-align: center; }
+  .kname small { color: var(--slate); font-size: .75rem; }
 </style>
 </head>
 <body>
@@ -137,6 +153,7 @@
 <div class="bar">
   <h1>五線譜モニター</h1>
   <span class="status" id="status">MIDIの使用を許可してください</span>
+  <button id="keyBtn" aria-haspopup="dialog">調：ハ長調／イ短調</button>
   <div class="viewtabs" id="viewtabs" role="tablist">
     <button class="tab" data-mode="staff" aria-pressed="true">五線譜</button>
     <button class="tab" data-mode="pdf" aria-pressed="false">PDF</button>
@@ -148,18 +165,18 @@
 
 <div class="main mode-staff" id="main">
   <div class="staffArea">
-    <div class="stage">
-      <canvas id="cv"></canvas>
-      <div class="hint" id="hint">鍵盤を弾くと、ここに音符が流れます</div>
-    </div>
-
-    <div class="foot">
+    <div class="readoutBar">
       <div class="readout">
         <span class="now idle" id="now" aria-live="polite">--</span>
         <span class="nowsub" id="nowsub"></span>
         <span class="pedal" id="pedal">ペダル</span>
       </div>
       <div class="kb show" id="kb" aria-hidden="true"></div>
+    </div>
+
+    <div class="stage">
+      <canvas id="cv"></canvas>
+      <div class="hint" id="hint">鍵盤を弾くと、ここに音符が流れます</div>
     </div>
   </div>
 
@@ -206,8 +223,18 @@
       <label class="chk"><input type="checkbox" id="wake"> 画面を消さない</label>
     </div>
   </div>
-  <p class="note">設定（音名表示・速さ・異名同音併記・音の長さ表示・鍵盤表示・画面ロック・表示モード・分割の比率）は次回起動時も保持されます。五線から離れすぎた音は 8va / 8vb などの記号を付けて、五線の近くに移動して表示します。PDFは著作権保護のため保存されず、開くたびに端末から選び直します。PDFは1本指で移動、2本指で拡大縮小できます（PCではドラッグで移動、Ctrl＋ホイールで拡大縮小）。</p>
+  <p class="note">設定（音名表示・速さ・異名同音併記・音の長さ表示・鍵盤表示・画面ロック・表示モード・分割の比率・調）は次回起動時も保持されます。調を選ぶと、音符は調号に合わせて書き分けられ、調号と異なる音にだけ ♯ ♭ ♮ が付きます（小節線が無いため1音ごとに判定）。五線から離れすぎた音は 8va / 8vb などの記号を付けて、五線の近くに移動して表示します。PDFは著作権保護のため保存されず、開くたびに端末から選び直します。PDFは1本指で移動、2本指で拡大縮小できます（PCではドラッグで移動、Ctrl＋ホイールで拡大縮小）。</p>
 </div>
+
+<dialog class="keyDialog" id="keyDialog" aria-labelledby="keyDialogTitle">
+  <div class="kdInner">
+    <div class="kdHead">
+      <h2 id="keyDialogTitle">調を選ぶ</h2>
+      <button id="keyClose">閉じる</button>
+    </div>
+    <div id="keyGroups"></div>
+  </div>
+</dialog>
 
 <script type="module">
 import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.min.mjs";
@@ -219,21 +246,64 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.worker.min.mjs";
 
-  /* ---------- 音名・譜表位置の定義 ---------- */
-  const N_SHARP  = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
-  const N_FLAT   = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
-  const J_SHARP  = ['ド','ド♯','レ','レ♯','ミ','ファ','ファ♯','ソ','ソ♯','ラ','ラ♯','シ'];
-  const J_FLAT   = ['ド','レ♭','レ','ミ♭','ミ','ファ','ソ♭','ソ','ラ♭','ラ','シ♭','シ'];
-  const L_SHARP  = [0,0,1,1,2,3,3,4,4,5,5,6];   // ♯表記のときの音名字（C=0…B=6）
-  const L_FLAT   = [0,1,1,2,2,3,4,4,5,5,6,6];   // ♭表記のときの音名字
+  /* ---------- 音名・調・譜表位置の定義 ---------- */
+  const LETTER_PC = [0, 2, 4, 5, 7, 9, 11];              // 音名字 C D E F G A B（0〜6）の自然音の音高
+  const LETTER_EN = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const LETTER_JA = ['ド', 'レ', 'ミ', 'ファ', 'ソ', 'ラ', 'シ'];
+  const ALT_SYM = { '-1': '♭', '0': '♮', '1': '♯' };
+  const SHARP_ORDER = [3, 0, 4, 1, 5, 2, 6];              // 調号の♯が付く順（F C G D A E B）
+  const FLAT_ORDER  = [6, 2, 5, 1, 4, 0, 3];              // 調号の♭が付く順（B E A D G C F）
   const IS_BLACK = [0,1,0,1,0,0,1,0,1,0,1,0];
-  const LOW = 21, HIGH = 108;                   // 88鍵 A0〜C8
+  const LOW = 21, HIGH = 108;                             // 88鍵 A0〜C8
 
-  // ダイアトニック段位（半音ではなく「線と間」の位置、半段単位）
-  const stepOf = (n, flat) => (Math.floor(n / 12) - 1) * 7 + (flat ? L_FLAT : L_SHARP)[n % 12];
-  const octOf  = n => Math.floor(n / 12) - 1;
-  const nameEn = (n, flat) => (flat ? N_FLAT : N_SHARP)[n % 12] + octOf(n);
-  const nameJa = (n, flat) => (flat ? J_FLAT : J_SHARP)[n % 12];
+  // 調は調号の数 fifths で表す（-7＝♭7つ … 0＝調号なし … +7＝♯7つ）。KEYS[fifths + 7]
+  const KEYS = [
+    ['C♭', 'A♭m', '変ハ長調', '変イ短調'], ['G♭', 'E♭m', '変ト長調', '変ホ短調'],
+    ['D♭', 'B♭m', '変ニ長調', '変ロ短調'], ['A♭', 'Fm', '変イ長調', 'ヘ短調'],
+    ['E♭', 'Cm', '変ホ長調', 'ハ短調'],         ['B♭', 'Gm', '変ロ長調', 'ト短調'],
+    ['F', 'Dm', 'ヘ長調', 'ニ短調'],                 ['C', 'Am', 'ハ長調', 'イ短調'],
+    ['G', 'Em', 'ト長調', 'ホ短調'],                 ['D', 'Bm', 'ニ長調', 'ロ短調'],
+    ['A', 'F♯m', 'イ長調', '嬰ヘ短調'],         ['E', 'C♯m', 'ホ長調', '嬰ハ短調'],
+    ['B', 'G♯m', 'ロ長調', '嬰ト短調'],         ['F♯', 'D♯m', '嬰ヘ長調', '嬰ニ短調'],
+    ['C♯', 'A♯m', '嬰ハ長調', '嬰イ短調']
+  ];
+  const keyInfo = f => KEYS[f + 7];
+  const keyAlt = (fifths, letter) =>
+    fifths > 0 ? (SHARP_ORDER.indexOf(letter) < fifths ? 1 : 0) :
+    fifths < 0 ? (FLAT_ORDER.indexOf(letter) < -fifths ? -1 : 0) : 0;
+
+  // その音高を変化0〜±1で表せる綴り（音名字と変化量）の候補
+  function spellCandidates(n) {
+    const pc = n % 12, out = [];
+    for (let L = 0; L < 7; L++) {
+      const a = ((pc - LETTER_PC[L] + 18) % 12) - 6;
+      if (a >= -1 && a <= 1) out.push({ letter: L, alt: a });
+    }
+    return out;
+  }
+  // step＝ダイアトニック段位（「線と間」の位置、半段単位）。acc＝調号と異なる時だけ付ける臨時記号（-1/0/1、不要ならnull）
+  function finishSpelling(n, c, fifths) {
+    const oct = Math.floor((n - c.alt) / 12) - 1;            // C♭4 や B♯3 のように音名字でオクターブが決まる
+    return { letter: c.letter, alt: c.alt, oct: oct, step: oct * 7 + c.letter,
+             acc: c.alt === keyAlt(fifths, c.letter) ? null : c.alt };
+  }
+  // 調に合わせて綴る：調の音階音ならその綴り。それ以外は変化の少ない綴りを優先し、
+  // ♯/♭どちらでも書ける黒鍵は♭系の調なら♭、それ以外（調号なし含む）は♯
+  function spell(n, fifths) {
+    const cands = spellCandidates(n);
+    const inKey = cands.find(c => c.alt === keyAlt(fifths, c.letter));
+    if (inKey) return finishSpelling(n, inKey, fifths);
+    cands.sort((a, b) => Math.abs(a.alt) - Math.abs(b.alt) || (fifths < 0 ? a.alt - b.alt : b.alt - a.alt));
+    return finishSpelling(n, cands[0], fifths);
+  }
+  // 黒鍵のもう一方の綴り（異名同音の併記用）
+  function altSpell(n, fifths, main) {
+    if (!IS_BLACK[n % 12]) return null;
+    const c = spellCandidates(n).find(c => c.letter !== main.letter);
+    return c ? finishSpelling(n, c, fifths) : null;
+  }
+  const nameEn = sp => LETTER_EN[sp.letter] + (sp.alt ? ALT_SYM[sp.alt] : '') + sp.oct;
+  const nameJa = sp => LETTER_JA[sp.letter] + (sp.alt ? ALT_SYM[sp.alt] : '');
 
   // 大譜表：ト音（E4〜F5）とヘ音（G2〜A3）。中央C(28)はどちらからも加線1本の等距離
   const STAFF = {
@@ -249,6 +319,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   let pedalOn = false, midiAccess = null, wakeLock = null, raf = 0;
   let viewMode = 'staff';
   let splitRatio = 45;         // 分割表示時の五線譜側の高さ（%）
+  let keyFifths = 0;           // 選択中の調（調号の数、♭はマイナス）
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   /* ---------- 設定の永続化 ---------- */
@@ -269,7 +340,8 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
         showKb: $('showKb').checked,
         wake: $('wake').checked,
         viewMode: viewMode,
-        splitRatio: splitRatio
+        splitRatio: splitRatio,
+        key: keyFifths
       }));
     } catch (_) {}
   }
@@ -282,6 +354,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     if (typeof s.showKb === 'boolean') { $('showKb').checked = s.showKb; $('kb').classList.toggle('show', s.showKb); }
     if (s.wake) { $('wake').checked = true; setWake(true); }
     if (typeof s.splitRatio === 'number') { splitRatio = clamp(s.splitRatio, 15, 85); applySplit(); }
+    if (typeof s.key === 'number') setKey(s.key, true);
     if (s.viewMode) setViewMode(s.viewMode, true);
   }
 
@@ -311,12 +384,13 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     const top0 = Math.max(0, (usable - totalH) / 2);
     staffTopTreble = top0;
     staffTopBass = top0 + staffH + gap;
-    clefRight = Math.round(spacing * 3.2);
+    clefRight = Math.round(spacing * clefW + keySigWidth(keyFifths, spacing));
     draw();
   }
 
   const staffTopOf = staff => staff === 'treble' ? staffTopTreble : staffTopBass;
-  const yOfStep = (s, staff) => staffTopOf(staff) + 4 * spacing - (s - STAFF[staff].bottom) * spacing / 2;
+  const yAt = (top, staff, step, sp) => top + 4 * sp - (step - STAFF[staff].bottom) * sp / 2;
+  const yOfStep = (s, staff) => yAt(staffTopOf(staff), staff, s, spacing);
 
   // 五線から離れすぎた音はオクターブ単位で寄せる（段ごとに判定）
   function place(step, staff) {
@@ -344,45 +418,92 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     clefGlyph.bass = detectGlyph('\u{1D122}');
   }
 
-  // 記号のインク範囲を、基準線（ト音=G4線、ヘ音=F3線）から上下に何間隔分広がるかで指定する。
-  // 値はSMuFL標準フォントBravuraの字形寸法。フォントごとの字形の余白差に左右されないよう、実測したインク範囲をこの高さに合わせる
+  // 記号のインク範囲を、基準線から上下に何間隔分広がるかで指定する（SMuFL標準フォントBravuraの字形寸法）。
+  // フォントごとの字形の余白差に左右されないよう、実測したインク範囲をこの高さに合わせて描く
   const CLEF_BOX = {
-    treble: { line: 3, above: 4.392, below: 2.632 },   // 高さ約7.0間隔
-    bass:   { line: 1, above: 1.024, below: 2.540 }    // 高さ約3.6間隔（ト音記号の約半分）
+    treble: { line: 3, above: 4.392, below: 2.632 },   // 基準線G4。高さ約7.0間隔
+    bass:   { line: 1, above: 1.024, below: 2.540 }    // 基準線F3。高さ約3.6間隔（ト音記号の約半分）
   };
+  const ACC_BOX = {                                    // 基準線＝その音の線または間の中心
+    '1':  { above: 1.4,  below: 1.4 },                 // ♯
+    '0':  { above: 1.35, below: 1.35 },                // ♮
+    '-1': { above: 1.75, below: 0.7 }                  // ♭（ふくらみ部分を基準線に合わせる）
+  };
+  const KEYSIG_STEP_W = 1.1;                           // 調号の記号1つ分の幅（間隔単位）
+  // 調号を置く段位（付く順）。ヘ音はト音の2オクターブ下
+  const KEYSIG_STEPS = {
+    treble: { sharp: [38, 35, 39, 36, 33, 37, 34], flat: [34, 37, 33, 36, 32, 35, 31] },
+    bass:   { sharp: [24, 21, 25, 22, 19, 23, 20], flat: [20, 23, 19, 22, 18, 21, 17] }
+  };
+  const keySigWidth = (fifths, sp) => fifths ? Math.abs(fifths) * KEYSIG_STEP_W * sp + sp * 0.5 : 0;
 
-  function drawClef(staff) {
-    const top = staffTopOf(staff);
-    const glyph = clefGlyph[staff];
+  // 音部記号の右端（間隔単位）。字形の横幅はフォントで異なるので実測し、広い方に揃える
+  let clefW = 3.2;
+  function measureClefWidth() {
+    const c = document.createElement('canvas').getContext('2d');
+    let right = 2.3;                                   // 代替表示（丸印）の右端
+    for (const staff of ['treble', 'bass']) {
+      const g = clefGlyph[staff];
+      if (!g) continue;
+      const m = measureGlyph(c, g), box = CLEF_BOX[staff];
+      right = Math.max(right, 0.5 + (m.left + m.right) * (box.above + box.below) / Math.max(1, m.asc + m.desc));
+    }
+    clefW = right + 0.5;
+  }
+
+  const glyphMetrics = new Map();
+  function measureGlyph(c, glyph) {
+    if (!glyphMetrics.has(glyph)) {
+      c.font = '100px serif';
+      const m = c.measureText(glyph);
+      glyphMetrics.set(glyph, {
+        asc: m.actualBoundingBoxAscent || 80, desc: m.actualBoundingBoxDescent || 20,
+        left: m.actualBoundingBoxLeft || 0, right: m.actualBoundingBoxRight || m.width
+      });
+    }
+    return glyphMetrics.get(glyph);
+  }
+  // グリフのインク範囲を box の高さに合わせて描く。alignRight なら x がインク右端、そうでなければ左端
+  function drawFitted(c, glyph, box, x, lineY, sp, alignRight) {
+    const m = measureGlyph(c, glyph);
+    const scale = sp * (box.above + box.below) / Math.max(1, m.asc + m.desc);
+    c.save();
+    c.font = '100px serif';
+    c.textAlign = 'left';
+    c.textBaseline = 'alphabetic';
+    c.translate(alignRight ? x - (m.left + m.right) * scale : x, lineY - box.above * sp);
+    c.scale(scale, scale);
+    c.fillText(glyph, m.left, m.asc);
+    c.restore();
+  }
+
+  function drawClefOn(c, staff, top, sp) {
     const box = CLEF_BOX[staff];
-    const lineY = top + box.line * spacing;
-    if (glyph) {
-      const size = 100;
-      ctx.font = size + 'px serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      const m = ctx.measureText(glyph);
-      const asc  = m.actualBoundingBoxAscent  || size * 0.8;
-      const desc = m.actualBoundingBoxDescent || size * 0.2;
-      const left = m.actualBoundingBoxLeft || 0;
-      const scale = spacing * (box.above + box.below) / Math.max(1, asc + desc);
-      ctx.save();
-      ctx.translate(spacing * 0.5, lineY - box.above * spacing);   // インク上端の位置
-      ctx.scale(scale, scale);
-      ctx.fillStyle = getCSS('--ink');
-      ctx.fillText(glyph, left, asc);
-      ctx.restore();
+    const lineY = top + box.line * sp;
+    c.fillStyle = getCSS('--ink');
+    if (clefGlyph[staff]) {
+      drawFitted(c, clefGlyph[staff], box, sp * 0.5, lineY, sp, false);
     } else {
       // 代替表示：ト音(G)・ヘ音(F)の基準線を丸印で示す
-      ctx.fillStyle = getCSS('--ink');
-      ctx.beginPath();
-      ctx.arc(spacing * 1.5, lineY, spacing * 0.72, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold ' + Math.round(spacing * 0.95) + 'px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(staff === 'treble' ? 'G' : 'F', spacing * 1.5, lineY + spacing * 0.05);
+      c.beginPath();
+      c.arc(sp * 1.5, lineY, sp * 0.72, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = '#fff';
+      c.font = 'bold ' + Math.round(sp * 0.95) + 'px sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(staff === 'treble' ? 'G' : 'F', sp * 1.5, lineY + sp * 0.05);
+    }
+  }
+
+  function drawKeySigOn(c, staff, top, sp, fifths) {
+    const k = Math.abs(fifths);
+    if (!k) return;
+    const alt = fifths > 0 ? 1 : -1;
+    const steps = KEYSIG_STEPS[staff][fifths > 0 ? 'sharp' : 'flat'];
+    c.fillStyle = getCSS('--ink');
+    for (let i = 0; i < k; i++) {
+      drawFitted(c, ALT_SYM[alt], ACC_BOX[alt], sp * (clefW + (i + 1) * KEYSIG_STEP_W), yAt(top, staff, steps[i], sp), sp, true);
     }
   }
 
@@ -399,8 +520,10 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
       }
     }
     ctx.stroke();
-    drawClef('treble');
-    drawClef('bass');
+    for (const staff of ['treble', 'bass']) {
+      drawClefOn(ctx, staff, staffTopOf(staff), spacing);
+      drawKeySigOn(ctx, staff, staffTopOf(staff), spacing, keyFifths);
+    }
   }
 
   function head(x, y, filled, alpha) {
@@ -426,8 +549,8 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     ctx.stroke();
   }
 
-  function label(n, flat) {
-    const en = nameEn(n, flat), ja = nameJa(n, flat);
+  function label(sp) {
+    const en = nameEn(sp), ja = nameJa(sp);
     switch (cfg.nameMode) {
       case 'en': return en;
       case 'ja': return ja;
@@ -456,13 +579,13 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
       if (xEnd < clefRight - spacing * 3) { notes.splice(i, 1); continue; }
       if (x > right + spacing) continue;
 
-      const isB = IS_BLACK[nt.n % 12] === 1;
-      const both = cfg.enh && isB;
+      const main = spell(nt.n, keyFifths);
+      const other = cfg.enh ? altSpell(nt.n, keyFifths, main) : null;
       const staff = staffOf(nt.n);
 
       // 音の長さのバー
       if (cfg.showLen && xEnd - x > 2) {
-        const p = place(stepOf(nt.n, false), staff);
+        const p = place(main.step, staff);
         ctx.save();
         ctx.globalAlpha = .22;
         ctx.fillStyle = getCSS('--key');
@@ -470,43 +593,40 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
         ctx.restore();
       }
 
-      drawOne(nt, x, false, 1);
-      if (both) drawOne(nt, x + spacing * 2.0, true, .45);
+      drawOne(nt, x, main, 1);
+      if (other) drawOne(nt, x + spacing * 2.0, other, .45);
 
       // 音名
-      const txt = label(nt.n, false);
+      const txt = label(main);
       if (txt && x < lastLabelX - spacing * 3.4) {
         ctx.fillStyle = getCSS('--slate');
         ctx.font = Math.round(Math.max(10, spacing * 0.78)) + 'px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        const t2 = both ? txt + ' / ' + label(nt.n, true) : txt;
-        ctx.fillText(t2, x + (both ? spacing : 0), H - 26);
+        const t2 = other ? txt + ' / ' + label(other) : txt;
+        ctx.fillText(t2, x + (other ? spacing : 0), H - 26);
         lastLabelX = x;
       }
     }
     ctx.restore();
   }
 
-  function drawOne(nt, x, flat, alpha) {
+  function drawOne(nt, x, sp, alpha) {
     const staff = staffOf(nt.n);
     const s = STAFF[staff];
-    const p = place(stepOf(nt.n, flat), staff);
+    const p = place(sp.step, staff);
     const y = yOfStep(p.step, staff);
     if (p.step > s.top + 1 || p.step < s.bottom - 1) {
       ctx.save(); ctx.globalAlpha = alpha; ledgers(x, p.step, staff); ctx.restore();
     }
     head(x, y, nt.off == null, alpha);
 
-    // 臨時記号
-    if (IS_BLACK[nt.n % 12]) {
+    // 臨時記号（調号と異なる音だけ）
+    if (sp.acc !== null) {
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.fillStyle = getCSS('--ink');
-      ctx.font = Math.round(spacing * 1.5) + 'px serif';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(flat ? '♭' : '♯', x - spacing * 0.8, y);
+      drawFitted(ctx, ALT_SYM[sp.acc], ACC_BOX[sp.acc], x - spacing * 0.85, y, spacing, true);
       ctx.restore();
     }
     // オクターブ移動の注記
@@ -617,10 +737,10 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     live.set(n, nt);
     lightKey(n, true);
     $('hint').classList.add('off');
-    const isB = IS_BLACK[n % 12] === 1;
-    $('now').textContent = nameEn(n, false) + (isB ? ' / ' + nameEn(n, true) : '');
+    const main = spell(n, keyFifths), other = altSpell(n, keyFifths, main);
+    $('now').textContent = nameEn(main) + (other ? ' / ' + nameEn(other) : '');
     $('now').classList.remove('idle');
-    $('nowsub').textContent = nameJa(n, false) + (isB ? ' / ' + nameJa(n, true) : '') + '　強さ ' + vel;
+    $('nowsub').textContent = nameJa(main) + (other ? ' / ' + nameJa(other) : '') + '　強さ ' + vel;
     kick();
   }
 
@@ -652,6 +772,64 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
     setTimeout(layout, 0);
     if (!skipSave) saveSettings();
+  }
+
+  /* ---------- 調の選択 ---------- */
+  const keyDialog = $('keyDialog');
+  const keyName = f => keyInfo(f)[2] + '／' + keyInfo(f)[3];
+
+  function setKey(f, skipSave) {
+    keyFifths = clamp(Math.round(f), -7, 7);
+    $('keyBtn').textContent = '調：' + keyName(keyFifths);
+    keyDialog.querySelectorAll('.kopt').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.f === keyFifths)));
+    layout();                                          // 調号の幅で音符の流れる範囲が変わる
+    if (!skipSave) saveSettings();
+  }
+
+  // 一覧の画像：ト音記号の五線に調号を描いた小さな譜表
+  function drawKeyThumb(canvas, fifths) {
+    const w = 120, h = 60, sp = 7, top = 17;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const c = canvas.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.strokeStyle = getCSS('--line');
+    c.lineWidth = 1;
+    c.beginPath();
+    for (let i = 0; i < 5; i++) { const y = Math.round(top + i * sp) + 0.5; c.moveTo(0, y); c.lineTo(w, y); }
+    c.stroke();
+    drawClefOn(c, 'treble', top, sp);
+    drawKeySigOn(c, 'treble', top, sp, fifths);
+  }
+
+  function buildKeyPicker() {
+    const groups = [['調号なし', [0]], ['♯の調', [1, 2, 3, 4, 5, 6, 7]], ['♭の調', [-1, -2, -3, -4, -5, -6, -7]]];
+    const root = $('keyGroups');
+    for (const [title, list] of groups) {
+      const h = document.createElement('div');
+      h.className = 'kgroup';
+      h.textContent = title;
+      const grid = document.createElement('div');
+      grid.className = 'kgrid';
+      for (const f of list) {
+        const k = keyInfo(f);
+        const b = document.createElement('button');
+        b.className = 'kopt';
+        b.dataset.f = f;
+        b.setAttribute('aria-pressed', 'false');
+        b.setAttribute('aria-label', keyName(f) + '（' + k[0] + ' / ' + k[1] + '）');
+        const cvs = document.createElement('canvas');
+        drawKeyThumb(cvs, f);
+        const name = document.createElement('div');
+        name.className = 'kname';
+        name.innerHTML = keyInfo(f)[2] + '／' + keyInfo(f)[3] + '<br><small>' + k[0] + ' / ' + k[1] + '</small>';
+        b.append(cvs, name);
+        b.addEventListener('click', () => { setKey(f); keyDialog.close(); });
+        grid.appendChild(b);
+      }
+      root.append(h, grid);
+    }
   }
 
   /* ---------- 分割境界のドラッグ ---------- */
@@ -851,12 +1029,17 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
 
   /* ---------- 初期化 ---------- */
   detectClef();
-  layout();
+  measureClefWidth();
+  buildKeyPicker();
+  setKey(0, true);
   if (window.ResizeObserver) new ResizeObserver(layout).observe(cv);
   window.addEventListener('resize', layout);
   window.addEventListener('orientationchange', () => setTimeout(layout, 250));
 
   $('start').addEventListener('click', start);
+  $('keyBtn').addEventListener('click', () => keyDialog.showModal());
+  $('keyClose').addEventListener('click', () => keyDialog.close());
+  keyDialog.addEventListener('click', e => { if (e.target === keyDialog) keyDialog.close(); });   // 枠外（背景）を押したら閉じる
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => setViewMode(b.dataset.mode)));
   $('toggle').addEventListener('click', () => {
     const open = $('panel').classList.toggle('show');
@@ -884,7 +1067,8 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
 
   // 動作確認用（コンソールから呼べる。実機のMIDIなしで描画を確認するため）
   window.__place = (step, staff) => place(step, staff || 'treble');
-  window.__stepOf = stepOf;
+  window.__spell = spell;
+  window.__altSpell = altSpell;
   window.__staffOf = staffOf;
   window.__noteOn = noteOn;
   window.__noteOff = noteOff;
