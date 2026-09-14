@@ -61,17 +61,25 @@
 
   /* 五線譜＋PDFの表示領域 */
   .main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .staffArea { display: flex; flex-direction: column; min-height: 0; }
+  .staffArea { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .main.mode-staff .staffArea { flex: 1 1 auto; }
   .main.mode-staff .pdfPane { display: none; }
   .main.mode-pdf .staffArea { display: none; }
   .main.mode-pdf .pdfPane { flex: 1 1 auto; display: flex; }
-  .main.mode-split .staffArea { flex: 0 0 45%; }
-  .main.mode-split .pdfPane { flex: 1 1 auto; display: flex; }
+  .main.mode-split .staffArea { flex: 0 0 var(--split, 45%); }
+  .main.mode-split .pdfPane { flex: 1 1 auto; display: flex; border-top: 0; }
+
+  /* 分割境界（ドラッグで五線譜とPDFの比率を変える） */
+  .splitter { display: none; flex: none; height: 20px; align-items: center; justify-content: center;
+              background: var(--mist); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+              cursor: row-resize; touch-action: none; }
+  .splitter::before { content: ""; width: 56px; height: 4px; border-radius: 2px; background: var(--ghost); }
+  .splitter.drag, .splitter:focus-visible { background: var(--line); outline: none; }
+  .main.mode-split .splitter { display: flex; }
 
   /* 五線譜 */
   .stage { flex: 1 1 auto; position: relative; min-height: 0; background: var(--paper); }
-  canvas { display: block; width: 100%; height: 100%; }
+  #cv { display: block; width: 100%; height: 100%; }
   .hint {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     color: var(--ghost); pointer-events: none; text-align: center; padding: 0 24px;
@@ -104,9 +112,10 @@
   .pdfInfo { font-size: .82rem; color: var(--slate); flex: 1; min-width: 80px;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #pdfPageLabel { font-size: .85rem; color: var(--slate); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .pdfScroll { flex: 1 1 auto; overflow: auto; min-height: 0; background: #77808c;
-               display: flex; justify-content: center; }
-  .pdfScroll canvas { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); margin: 10px auto; }
+  /* touch-action:none でブラウザ標準のパン/ピンチを止め、JS側で1本指パン・2本指ピンチを処理する */
+  .pdfScroll { flex: 1 1 auto; overflow: auto; min-height: 0; background: #77808c; position: relative;
+               touch-action: none; overscroll-behavior: contain; user-select: none; -webkit-user-select: none; }
+  #pdfCanvas { display: block; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); margin: 10px auto; }
 
   /* 設定 */
   .panel { display: none; padding: 12px; background: var(--paper); border-top: 1px solid var(--line);
@@ -154,6 +163,8 @@
     </div>
   </div>
 
+  <div class="splitter" id="splitter" role="separator" aria-orientation="horizontal" aria-label="五線譜とPDFの境界" tabindex="0"></div>
+
   <div class="pdfPane" id="pdfPane">
     <div class="pdfBar">
       <button id="pdfOpenBtn">PDFを開く</button>
@@ -164,6 +175,7 @@
       <button id="pdfNext" disabled>次へ</button>
       <button id="pdfZoomOut" disabled>縮小</button>
       <button id="pdfZoomIn" disabled>拡大</button>
+      <button id="pdfFit" disabled>幅合わせ</button>
     </div>
     <div class="pdfScroll" id="pdfScroll">
       <canvas id="pdfCanvas"></canvas>
@@ -194,7 +206,7 @@
       <label class="chk"><input type="checkbox" id="wake"> 画面を消さない</label>
     </div>
   </div>
-  <p class="note">設定（音名表示・速さ・異名同音併記・音の長さ表示・鍵盤表示・画面ロック・表示モード）は次回起動時も保持されます。五線から離れすぎた音は 8va / 8vb などの記号を付けて、五線の近くに移動して表示します。PDFは著作権保護のため保存されず、開くたびに端末から選び直します。</p>
+  <p class="note">設定（音名表示・速さ・異名同音併記・音の長さ表示・鍵盤表示・画面ロック・表示モード・分割の比率）は次回起動時も保持されます。五線から離れすぎた音は 8va / 8vb などの記号を付けて、五線の近くに移動して表示します。PDFは著作権保護のため保存されず、開くたびに端末から選び直します。PDFは1本指で移動、2本指で拡大縮小できます（PCではドラッグで移動、Ctrl＋ホイールで拡大縮小）。</p>
 </div>
 
 <script type="module">
@@ -236,6 +248,8 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   const live  = new Map();     // MIDIノート番号 -> note オブジェクト
   let pedalOn = false, midiAccess = null, wakeLock = null, raf = 0;
   let viewMode = 'staff';
+  let splitRatio = 45;         // 分割表示時の五線譜側の高さ（%）
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   /* ---------- 設定の永続化 ---------- */
   const SETTINGS_KEY = 'fumendai:index:settings';
@@ -254,7 +268,8 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
         showLen: cfg.showLen,
         showKb: $('showKb').checked,
         wake: $('wake').checked,
-        viewMode: viewMode
+        viewMode: viewMode,
+        splitRatio: splitRatio
       }));
     } catch (_) {}
   }
@@ -266,6 +281,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     if (typeof s.showLen === 'boolean') { cfg.showLen = s.showLen; $('showLen').checked = s.showLen; }
     if (typeof s.showKb === 'boolean') { $('showKb').checked = s.showKb; $('kb').classList.toggle('show', s.showKb); }
     if (s.wake) { $('wake').checked = true; setWake(true); }
+    if (typeof s.splitRatio === 'number') { splitRatio = clamp(s.splitRatio, 15, 85); applySplit(); }
     if (s.viewMode) setViewMode(s.viewMode, true);
   }
 
@@ -626,16 +642,58 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     viewMode = mode;
     $('main').className = 'main mode-' + mode;
     document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
-    setTimeout(() => {
-      layout();
-      if (pdfDoc) renderPdfPage();
-    }, 0);
+    setTimeout(layout, 0);
     if (!skipSave) saveSettings();
   }
 
+  /* ---------- 分割境界のドラッグ ---------- */
+  const splitter = $('splitter');
+  let splitDragging = false;
+  function applySplit() { $('main').style.setProperty('--split', splitRatio + '%'); }
+  splitter.addEventListener('pointerdown', e => {
+    splitDragging = true;
+    try { splitter.setPointerCapture(e.pointerId); } catch (_) {}
+    splitter.classList.add('drag');
+    e.preventDefault();
+  });
+  splitter.addEventListener('pointermove', e => {
+    if (!splitDragging) return;
+    const r = $('main').getBoundingClientRect();
+    if (r.height <= 0) return;
+    splitRatio = clamp(Math.round((e.clientY - r.top) / r.height * 1000) / 10, 15, 85);
+    applySplit();                                     // 五線譜側は ResizeObserver 経由で再レイアウトされる
+  });
+  const endSplitDrag = () => {
+    if (!splitDragging) return;
+    splitDragging = false;
+    splitter.classList.remove('drag');
+    saveSettings();
+  };
+  splitter.addEventListener('pointerup', endSplitDrag);
+  splitter.addEventListener('pointercancel', endSplitDrag);
+  splitter.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowUp' ? -5 : e.key === 'ArrowDown' ? 5 : 0;
+    if (!d) return;
+    e.preventDefault();
+    splitRatio = clamp(splitRatio + d, 15, 85);
+    applySplit();
+    saveSettings();
+  });
+
   /* ---------- PDF楽譜 ---------- */
-  let pdfDoc = null, pdfPageNum = 1, pdfNumPages = 0, pdfScale = 1.2, pdfRendering = false, pdfPendingPage = false;
+  // pdfScale は「PDFの1pt を何CSS px で表示するか」。canvas の表示サイズは常にページの縦横比を保つ
+  const PDF_MIN_SCALE = 0.25, PDF_MAX_SCALE = 6;
+  const PDF_MAX_PIXELS = 10e6;   // canvas 実画素の上限。大きく拡大した時のメモリ枯渇対策（端末に合わせて要調整）
+  let pdfDoc = null, pdfPageNum = 1, pdfNumPages = 0, pdfScale = 1;
+  let pdfCssW = 0, pdfCssH = 0, pdfRenderTask = null, pdfRenderSeq = 0, pdfRenderTimer = 0;
   const pdfCanvas = $('pdfCanvas'), pdfCtx = pdfCanvas.getContext('2d');
+  const pdfScroll = $('pdfScroll');
+
+  function setPdfCssSize(w, h) {
+    pdfCssW = w; pdfCssH = h;
+    pdfCanvas.style.width = w + 'px';
+    pdfCanvas.style.height = h + 'px';
+  }
 
   async function openPdfFile(file) {
     if (!file) return;
@@ -646,46 +704,142 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
       pdfNumPages = pdfDoc.numPages;
       pdfPageNum = 1;
       $('pdfInfo').textContent = file.name;
-      $('pdfPrev').disabled = false;
-      $('pdfNext').disabled = false;
-      $('pdfZoomOut').disabled = false;
-      $('pdfZoomIn').disabled = false;
-      await renderPdfPage();
+      ['pdfPrev', 'pdfNext', 'pdfZoomOut', 'pdfZoomIn', 'pdfFit'].forEach(id => { $(id).disabled = false; });
+      await pdfFitWidth();
     } catch (e) {
       pdfDoc = null;
       $('pdfInfo').textContent = 'PDFを開けませんでした（' + e.message + '）';
     }
   }
 
+  // 現在の pdfScale でページを描画する。表示サイズを先に確定し、裏のcanvasに描いてから差し替える（描画中に白く消えないように）
   async function renderPdfPage() {
     if (!pdfDoc) return;
-    if (pdfRendering) { pdfPendingPage = true; return; }
-    pdfRendering = true;
+    const seq = ++pdfRenderSeq;
+    if (pdfRenderTask) { pdfRenderTask.cancel(); pdfRenderTask = null; }
     try {
       const page = await pdfDoc.getPage(pdfPageNum);
-      const viewport = page.getViewport({ scale: pdfScale });
-      pdfCanvas.width = viewport.width;
-      pdfCanvas.height = viewport.height;
-      await page.render({ canvasContext: pdfCtx, viewport: viewport }).promise;
+      if (seq !== pdfRenderSeq) return;
+      const vp = page.getViewport({ scale: pdfScale });
+      setPdfCssSize(vp.width, vp.height);
+      let out = window.devicePixelRatio || 1;
+      const px = vp.width * vp.height * out * out;
+      if (px > PDF_MAX_PIXELS) out *= Math.sqrt(PDF_MAX_PIXELS / px);
+      const off = document.createElement('canvas');
+      off.width = Math.floor(vp.width * out);
+      off.height = Math.floor(vp.height * out);
+      const task = page.render({
+        canvasContext: off.getContext('2d'),
+        viewport: vp,
+        transform: out !== 1 ? [out, 0, 0, out, 0, 0] : null
+      });
+      pdfRenderTask = task;
+      await task.promise;
+      if (seq !== pdfRenderSeq) return;
+      pdfCanvas.width = off.width;
+      pdfCanvas.height = off.height;
+      pdfCtx.drawImage(off, 0, 0);
       $('pdfPageLabel').textContent = pdfPageNum + ' / ' + pdfNumPages;
-    } catch (_) {
-      // 描画中のページ切替などは無視（次のレンダリングが上書きする）
+    } catch (e) {
+      if (e && e.name !== 'RenderingCancelledException') $('pdfInfo').textContent = 'PDFの描画に失敗しました（' + e.message + '）';
     } finally {
-      pdfRendering = false;
-      if (pdfPendingPage) { pdfPendingPage = false; renderPdfPage(); }
+      if (seq === pdfRenderSeq) pdfRenderTask = null;
     }
+  }
+
+  // 拡大縮小中は見た目だけ即座に伸縮し、操作が落ち着いてから高解像度で描き直す
+  function scheduleRender() {
+    clearTimeout(pdfRenderTimer);
+    pdfRenderTimer = setTimeout(renderPdfPage, 180);
+  }
+
+  // (fx, fy) = 表示領域内の座標。その点の下にある楽譜の位置を動かさずに倍率を変える
+  function pdfZoomTo(newScale, fx, fy) {
+    if (!pdfDoc || !pdfCssW) return;
+    newScale = clamp(newScale, PDF_MIN_SCALE, PDF_MAX_SCALE);
+    const k = newScale / pdfScale;
+    if (Math.abs(k - 1) < 1e-4) return;
+    const cx = pdfScroll.scrollLeft + fx - pdfCanvas.offsetLeft;
+    const cy = pdfScroll.scrollTop + fy - pdfCanvas.offsetTop;
+    pdfScale = newScale;
+    setPdfCssSize(pdfCssW * k, pdfCssH * k);
+    pdfScroll.scrollLeft = cx * k + pdfCanvas.offsetLeft - fx;
+    pdfScroll.scrollTop = cy * k + pdfCanvas.offsetTop - fy;
+    scheduleRender();
+  }
+  const pdfZoomCenter = factor => pdfZoomTo(pdfScale * factor, pdfScroll.clientWidth / 2, pdfScroll.clientHeight / 2);
+
+  async function pdfFitWidth() {
+    if (!pdfDoc) return;
+    const page = await pdfDoc.getPage(pdfPageNum);
+    const w = page.getViewport({ scale: 1 }).width;
+    const avail = pdfScroll.clientWidth - 20;                                          // 20 = 左右の余白
+    pdfScale = avail > 0 ? clamp(avail / w, PDF_MIN_SCALE, PDF_MAX_SCALE) : 1;         // 非表示で幅0の時は等倍
+    await renderPdfPage();
+    pdfScroll.scrollLeft = 0;
+    pdfScroll.scrollTop = 0;
   }
 
   function pdfGoPage(delta) {
     if (!pdfDoc) return;
-    const n = Math.min(pdfNumPages, Math.max(1, pdfPageNum + delta));
-    if (n !== pdfPageNum) { pdfPageNum = n; renderPdfPage(); }
-  }
-  function pdfZoom(delta) {
-    if (!pdfDoc) return;
-    pdfScale = Math.min(3, Math.max(0.5, Math.round((pdfScale + delta) * 10) / 10));
+    const n = clamp(pdfPageNum + delta, 1, pdfNumPages);
+    if (n === pdfPageNum) return;
+    pdfPageNum = n;
+    pdfScroll.scrollTop = 0;
     renderPdfPage();
   }
+
+  // タッチ：1本指でパン、2本指でピンチ（2本指の中点移動もパンとして反映）。マウスはドラッグでパン
+  const pdfPtrs = new Map();
+  let pdfPan = null, pdfPinch = null;
+  function pdfLocal(p) {
+    const r = pdfScroll.getBoundingClientRect();
+    return { x: p.x - r.left, y: p.y - r.top };
+  }
+  function resetPdfGesture() {
+    const pts = [...pdfPtrs.values()];
+    pdfPan = pts.length === 1 ? { x: pts[0].x, y: pts[0].y } : null;
+    pdfPinch = pts.length >= 2
+      ? { dist: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
+          mid: pdfLocal({ x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }) }
+      : null;
+  }
+  pdfScroll.addEventListener('pointerdown', e => {
+    if (!pdfDoc || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    try { pdfScroll.setPointerCapture(e.pointerId); } catch (_) {}
+    pdfPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    resetPdfGesture();
+  });
+  pdfScroll.addEventListener('pointermove', e => {
+    if (!pdfPtrs.has(e.pointerId)) return;
+    pdfPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = [...pdfPtrs.values()];
+    if (pts.length === 1 && pdfPan) {
+      pdfScroll.scrollLeft -= pts[0].x - pdfPan.x;
+      pdfScroll.scrollTop -= pts[0].y - pdfPan.y;
+      pdfPan = { x: pts[0].x, y: pts[0].y };
+    } else if (pts.length >= 2 && pdfPinch) {
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const mid = pdfLocal({ x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 });
+      pdfScroll.scrollLeft -= mid.x - pdfPinch.mid.x;
+      pdfScroll.scrollTop -= mid.y - pdfPinch.mid.y;
+      if (pdfPinch.dist > 0) pdfZoomTo(pdfScale * dist / pdfPinch.dist, mid.x, mid.y);
+      pdfPinch = { dist: dist, mid: mid };
+    }
+  });
+  const endPdfPointer = e => {
+    if (!pdfPtrs.delete(e.pointerId)) return;
+    resetPdfGesture();                                // 指が1本残ったら、その位置からパンを続ける
+  };
+  pdfScroll.addEventListener('pointerup', endPdfPointer);
+  pdfScroll.addEventListener('pointercancel', endPdfPointer);
+  // PC：Ctrl+ホイール（トラックパッドのピンチもこれで届く）で拡大縮小。通常ホイールはそのままスクロール
+  pdfScroll.addEventListener('wheel', e => {
+    if (!pdfDoc || !e.ctrlKey) return;
+    e.preventDefault();
+    const p = pdfLocal({ x: e.clientX, y: e.clientY });
+    pdfZoomTo(pdfScale * Math.exp(-e.deltaY * 0.002), p.x, p.y);
+  }, { passive: false });
 
   /* ---------- 初期化 ---------- */
   detectClef();
@@ -713,9 +867,11 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   $('pdfFile').addEventListener('change', e => openPdfFile(e.target.files[0]));
   $('pdfPrev').addEventListener('click', () => pdfGoPage(-1));
   $('pdfNext').addEventListener('click', () => pdfGoPage(1));
-  $('pdfZoomOut').addEventListener('click', () => pdfZoom(-0.2));
-  $('pdfZoomIn').addEventListener('click', () => pdfZoom(0.2));
+  $('pdfZoomOut').addEventListener('click', () => pdfZoomCenter(1 / 1.25));
+  $('pdfZoomIn').addEventListener('click', () => pdfZoomCenter(1.25));
+  $('pdfFit').addEventListener('click', pdfFitWidth);
 
+  applySplit();
   applySettings(loadSettings());
 
   // 動作確認用（コンソールから呼べる。実機のMIDIなしで描画を確認するため）
