@@ -344,37 +344,45 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
     clefGlyph.bass = detectGlyph('\u{1D122}');
   }
 
+  // 記号のインク範囲を、基準線（ト音=G4線、ヘ音=F3線）から上下に何間隔分広がるかで指定する。
+  // 値はSMuFL標準フォントBravuraの字形寸法。フォントごとの字形の余白差に左右されないよう、実測したインク範囲をこの高さに合わせる
+  const CLEF_BOX = {
+    treble: { line: 3, above: 4.392, below: 2.632 },   // 高さ約7.0間隔
+    bass:   { line: 1, above: 1.024, below: 2.540 }    // 高さ約3.6間隔（ト音記号の約半分）
+  };
+
   function drawClef(staff) {
     const top = staffTopOf(staff);
     const glyph = clefGlyph[staff];
-    // ト音は中央線(B4)、ヘ音は第4線(F3)を基準に据える
-    const anchorY = staff === 'treble' ? top + 2 * spacing : top + 1 * spacing;
+    const box = CLEF_BOX[staff];
+    const lineY = top + box.line * spacing;
     if (glyph) {
-      const size = spacing * 7;
+      const size = 100;
       ctx.font = size + 'px serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       const m = ctx.measureText(glyph);
       const asc  = m.actualBoundingBoxAscent  || size * 0.8;
       const desc = m.actualBoundingBoxDescent || size * 0.2;
-      const scale = (spacing * 7) / Math.max(1, asc + desc);
+      const left = m.actualBoundingBoxLeft || 0;
+      const scale = spacing * (box.above + box.below) / Math.max(1, asc + desc);
       ctx.save();
-      ctx.translate(spacing * 0.5, anchorY);
+      ctx.translate(spacing * 0.5, lineY - box.above * spacing);   // インク上端の位置
       ctx.scale(scale, scale);
       ctx.fillStyle = getCSS('--ink');
-      ctx.fillText(glyph, 0, (asc - desc) / 2);
+      ctx.fillText(glyph, left, asc);
       ctx.restore();
     } else {
       // 代替表示：ト音(G)・ヘ音(F)の基準線を丸印で示す
       ctx.fillStyle = getCSS('--ink');
       ctx.beginPath();
-      ctx.arc(spacing * 1.5, anchorY, spacing * 0.72, 0, Math.PI * 2);
+      ctx.arc(spacing * 1.5, lineY, spacing * 0.72, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.font = 'bold ' + Math.round(spacing * 0.95) + 'px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(staff === 'treble' ? 'G' : 'F', spacing * 1.5, anchorY + spacing * 0.05);
+      ctx.fillText(staff === 'treble' ? 'G' : 'F', spacing * 1.5, lineY + spacing * 0.05);
     }
   }
 
