@@ -44,6 +44,11 @@ GitHub Pagesで公開し、Android実機のブラウザから `https://<user>.gi
 - PDFのタッチ操作（1本指パン・2本指ピンチ）は動作する。`touch-action:none` によるJS処理がSleipnirのジェスチャーと干渉しない
 - PDF.js（CDN経由）はSleipnirで動作する（PDFを表示して上記の操作ができたことから）
 
+2026-09-15、`index.html` で確認（同じ端末・Sleipnir）：
+
+- 「BLE接続」ボタン（`intent:` URL）で MIDI BLE Connect を起動できる（直接開いたかGoogle Play経由かは未記録）
+- Fullscreen API は Sleipnir で動作する（「全画面」ボタンで全画面化・解除できる）
+
 ## 未検証の事項
 
 - USBケーブル接続（USB-C to USB-B）。Bluetoothで足りているため未実施
@@ -51,10 +56,6 @@ GitHub Pagesで公開し、Android実機のブラウザから `https://<user>.gi
 - 押鍵から画面表示までの実測遅延
 - 臨時記号の寸法 `ACC_BOX` の値（記憶に基づくBravuraの概算値）が実機のフォントで自然に見えるか
 - Screen Wake Lock API が Sleipnir で動くか
-- 「BLE接続」ボタンの `intent:` URL が Sleipnir で処理されるか（アプリが直接開くか、Google Playのページ経由になるか、何も起きないか）。
-  処理はブラウザアプリ側の実装に依存するため、Chromeで動いてもSleipnirで動くとは限らない
-- Fullscreen API が Sleipnir で動くか。WebViewではホストアプリが全画面表示に対応していないと失敗する／応答しないことがある
-  （開発PCのアプリ内ブラウザでは Promise が成功も失敗もしないまま止まったため、1.5秒の時間切れを入れた）
 - 拡大時の canvas 実画素上限 `PDF_MAX_PIXELS=10e6` が実機のメモリ・描画速度に対して妥当か
 
 ## index.html の仕様（利用者が選択したもの）
