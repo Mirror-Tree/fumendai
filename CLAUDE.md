@@ -50,6 +50,16 @@ GitHub Pagesで公開し、Android実機のブラウザから `https://<user>.gi
   - 理由（推測を含む）：ブラウザはWebページからの intent に BROWSABLE カテゴリを付けて安全側に制限するのが一般的で、
     MIDI BLE Connect の公開ソース（Mobileer の MidiBtlePairing サンプル）には BROWSABLE を宣言した画面が無い。
     そのため intent が解決できず、フォールバックのGoogle Playページに回っていると考えられる。アプリ側の対応が無い限り、Webページから直接起動する手段は無い見込み
+  - 2026-09-16、`check.html` に置いた試験用ボタンで他の書き方も比較（試験後にボタンは削除。コードはコミット 55a8b3b にある）：
+
+    | 書き方 | 結果 |
+    |---|---|
+    | `intent:` MAIN/LAUNCHER＋Google Playへのフォールバック（現行） | Google Playのページ → 「開く」で起動 |
+    | `intent:#Intent;package=…;end`（フォールバックなし） | 「詳細を確認するアプリを選択」が出てGoogle Play |
+    | `market://launch?id=…` | 何も起きない |
+    | `market://details?id=…` | 「開くアプリを選択」→ Google Play → Google Playのページ |
+
+    → どの書き方でも直接は起動できない。選択画面が出ない現行方式が最も手数が少ないので、`index.html` は現行のままとする
 - Fullscreen API は Sleipnir で動作する（「全画面」ボタンで全画面化・解除できる）
 
 ## 未検証の事項
