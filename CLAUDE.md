@@ -46,7 +46,10 @@ GitHub Pagesで公開し、Android実機のブラウザから `https://<user>.gi
 
 2026-09-15、`index.html` で確認（同じ端末・Sleipnir）：
 
-- 「BLE接続」ボタン（`intent:` URL）で MIDI BLE Connect を起動できる（直接開いたかGoogle Play経由かは未記録）
+- 「BLE接続」ボタン（`intent:` URL）で MIDI BLE Connect を起動できる。ただし**直接は開かず、Google Playのページが出てから「開く」で起動する**
+  - 理由（推測を含む）：ブラウザはWebページからの intent に BROWSABLE カテゴリを付けて安全側に制限するのが一般的で、
+    MIDI BLE Connect の公開ソース（Mobileer の MidiBtlePairing サンプル）には BROWSABLE を宣言した画面が無い。
+    そのため intent が解決できず、フォールバックのGoogle Playページに回っていると考えられる。アプリ側の対応が無い限り、Webページから直接起動する手段は無い見込み
 - Fullscreen API は Sleipnir で動作する（「全画面」ボタンで全画面化・解除できる）
 
 ## 未検証の事項
