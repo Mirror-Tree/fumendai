@@ -75,6 +75,15 @@
   button.primary { background: var(--ink); color: #fff; }
   button:disabled { opacity: .4; cursor: not-allowed; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
+  .applaunch { margin-bottom: 20px; }
+  .launches { margin: 0; padding: 0; list-style: none; }
+  .launches li { display: grid; grid-template-columns: 11em 1fr; gap: 4px 12px; align-items: center;
+                 padding: 8px 0; border-top: 1px solid var(--line); }
+  .launches a { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 8px 14px;
+                border-radius: 8px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); text-decoration: none; }
+  .launches a:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
+  .launches code { font-size: .78rem; color: var(--slate); word-break: break-all; }
+  @media (max-width: 520px) { .launches li { grid-template-columns: 1fr; } }
   select { cursor: default; max-width: 100%; }
 
   .checks { margin: 0 0 8px; padding: 0; list-style: none; }
@@ -153,6 +162,21 @@
       <dl class="stats" id="bleStats"></dl>
     </section>
   </div>
+
+  <section class="route applaunch" aria-labelledby="h-launch">
+    <h2 id="h-launch">試験　MIDI BLE Connect の起動方法</h2>
+    <p class="how">index.html の「BLE接続」は Google Play のページを経由して開く。直接開ける書き方があるかを比べるための試験用ボタン。押した後、何が起きたか（アプリが直接開いた／Google Playが出た／何も起きない）を見てください。ページが裏に回った時刻はログに残ります。</p>
+    <ul class="launches" id="launches">
+      <li><a data-name="A 現行(intent・起動画面指定)" href="intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=com.mobileer.example.midibtlepairing;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.mobileer.example.midibtlepairing;end">A 現行と同じ</a>
+        <code>intent: MAIN/LAUNCHER + Google Playへのフォールバック（比較の基準）</code></li>
+      <li><a data-name="B intent・パッケージのみ" href="intent:#Intent;package=com.mobileer.example.midibtlepairing;end">B intent（パッケージのみ）</a>
+        <code>intent:#Intent;package=…;end（フォールバックなし）</code></li>
+      <li><a data-name="C market://launch" href="market://launch?id=com.mobileer.example.midibtlepairing">C market://launch</a>
+        <code>Google Play アプリ経由でインストール済みアプリを起動する形式（動くかは推測）</code></li>
+      <li><a data-name="D market://details" href="market://details?id=com.mobileer.example.midibtlepairing">D market://details</a>
+        <code>Google Play アプリの詳細ページを直接開く（Webページの読み込みを省ける可能性）</code></li>
+    </ul>
+  </section>
 
   <section class="logbox" aria-labelledby="h-log">
     <h2 id="h-log">ログ</h2>
@@ -624,6 +648,21 @@
   $('bleReconnect').addEventListener('click', bleConnect);
   $('bleDisconnect').addEventListener('click', bleDisconnect);
   $('copyLog').addEventListener('click', copyLog);
+
+  // アプリ起動の試験：押した方式と、ページが裏に回る（＝別アプリに切り替わった）までの時間を記録
+  let launchTried = null;
+  $('launches').addEventListener('click', e => {
+    const a = e.target.closest('a');
+    if (!a) return;
+    launchTried = { name: a.dataset.name, at: performance.now() };
+    log(null, '起動試験', `${a.dataset.name} を押しました`);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!launchTried) return;
+    const ms = Math.round(performance.now() - launchTried.at);
+    if (document.visibilityState === 'hidden') log(null, '起動試験', `${launchTried.name}：${ms}ms後にページが裏に回りました（別アプリへ切り替え）`);
+    else { log(null, '起動試験', `${launchTried.name}：ページに戻りました`); launchTried = null; }
+  });
   $('clearLog').addEventListener('click', () => { logLines.length = 0; $('log').innerHTML = ''; });
 
   // 解析ロジックの自己テスト用（コンソールから呼べる）
