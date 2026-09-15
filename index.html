@@ -52,6 +52,11 @@
     white-space: nowrap;
   }
   button.primary { background: var(--ink); color: #fff; }
+  a.btn { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px; border-radius: 8px;
+          border: 1px solid var(--ink); background: var(--paper); color: var(--ink); text-decoration: none; white-space: nowrap; }
+  a.btn:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
+  a.btn[hidden] { display: none; }
+  #fullscreen[aria-pressed="true"] { background: var(--ink); color: #fff; }
   button:disabled { opacity: .4; cursor: not-allowed; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--key); outline-offset: 2px; }
 
@@ -167,8 +172,12 @@
     <option value="split">分割</option>
     <option value="pdf">PDF</option>
   </select>
+  <!-- Android の intent: URL で「MIDI BLE Connect」を起動。起動できない環境では Google Play のページへ（そこから「開く」も可） -->
+  <a class="btn" id="bleApp" hidden
+     href="intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=com.mobileer.example.midibtlepairing;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.mobileer.example.midibtlepairing;end">BLE接続</a>
   <button class="primary" id="start">MIDI許可</button>
   <button id="toggle" aria-expanded="false" aria-controls="panel">設定</button>
+  <button id="fullscreen" aria-pressed="false">全画面</button>
 </div>
 
 <div class="main mode-staff" id="main">
@@ -1052,6 +1061,27 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289
   window.addEventListener('orientationchange', () => setTimeout(layout, 250));
 
   $('start').addEventListener('click', start);
+  $('bleApp').hidden = !/Android/i.test(navigator.userAgent);   // intent: URL は Android でしか意味がない
+
+  // 全画面（Fullscreen API）。WebView系ブラウザでは、アプリ側が対応していないと
+  // 失敗するか、Promise が成功も失敗もしないまま止まることがある（後者に備えて時間切れで打ち切る）
+  const isFullscreen = () => !!document.fullscreenElement;
+  $('fullscreen').addEventListener('click', async () => {
+    try {
+      if (isFullscreen()) { await document.exitFullscreen(); return; }
+      if (!document.documentElement.requestFullscreen) throw new Error('Fullscreen API 非対応');
+      await Promise.race([
+        document.documentElement.requestFullscreen(),
+        new Promise((_, reject) => setTimeout(() => { if (!isFullscreen()) reject(new Error('ブラウザが応答しません')); }, 1500))
+      ]);
+    } catch (e) {
+      setStatus('全画面にできませんでした（' + (e.message || e.name) + '）', 'bad');
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    $('fullscreen').setAttribute('aria-pressed', String(isFullscreen()));
+    $('fullscreen').textContent = isFullscreen() ? '全画面解除' : '全画面';
+  });
   $('keyBtn').addEventListener('click', () => keyDialog.showModal());
   $('keyClose').addEventListener('click', () => keyDialog.close());
   keyDialog.addEventListener('click', e => { if (e.target === keyDialog) keyDialog.close(); });   // 枠外（背景）を押したら閉じる
